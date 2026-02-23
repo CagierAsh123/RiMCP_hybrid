@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "rimworld-code-rag": {
+      "type": "local",
+      "command": [
+        "dotnet",
+        "run",
+        "--project",
+        "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/src/RimWorldCodeRag.McpServer/RimWorldCodeRag.McpServer.csproj"
+      ],
+      "environment": {
+        "RIMWORLD_INDEX_ROOT": "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/src/RimWorldCodeRag/index",
+        "EMBEDDING_SERVER_URL": "http://127.0.0.1:5000"
+      },
+      "enabled": true
+    }
+  }
+}

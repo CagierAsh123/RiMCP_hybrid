@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__zread__get_repo_structure",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(..venvScriptspython.exe pythonembedding_server.py --model \"models\\\\e5-base-v2\")",
+      "Bash(cmd /c \"cd /d B:\\\\RiMCP_hybrid-master\\\\RiMCP_hybrid-master\\\\src\\\\RimWorldCodeRag && .venv\\\\Scripts\\\\python.exe python\\\\embedding_server.py --model models\\\\e5-base-v2\")",
+      "Bash(cmd /c \"B:\\\\RiMCP_hybrid-master\\\\RiMCP_hybrid-master\\\\src\\\\RimWorldCodeRag\\\\.venv\\\\Scripts\\\\python.exe B:\\\\RiMCP_hybrid-master\\\\RiMCP_hybrid-master\\\\src\\\\RimWorldCodeRag\\\\python\\\\embedding_server.py --model B:\\\\RiMCP_hybrid-master\\\\RiMCP_hybrid-master\\\\src\\\\RimWorldCodeRag\\\\models\\\\e5-base-v2\")",
+      "Bash(powershell:*)"
+    ]
+  }
+}
