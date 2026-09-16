@@ -24,31 +24,27 @@ public sealed class XmlGraphExtractor
             yield return edge;
         }
     }
-    
 
     //XML -> XML 边（XmlInherits, XmlReferences）
     public IEnumerable<GraphEdge> ExtractXmlToXmlEdges(
-        XElement defElement, 
-        string defId, 
+        XElement defElement,
+        string defId,
         string? defType,
         ICollection<string> validDefIds,
-        ICollection<string> validDefNames)
+        ICollection<string> validDefNames,
+        IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds)
     {
-        var inheritsEdge = ExtractInheritsEdge(defElement, defId);
-        if (inheritsEdge != null && (validDefIds.Contains(inheritsEdge.TargetId) || validDefNames.Contains(inheritsEdge.TargetId.Replace("xml:", ""))))
+        foreach (var edge in ExtractInheritsEdges(defElement, defId, xmlSymbolToItemIds))
         {
-            yield return inheritsEdge;
+            yield return edge;
         }
 
-        foreach (var edge in ExtractReferencesEdges(defElement, defId, defType))
+        foreach (var edge in ExtractReferencesEdges(defElement, defId, defType, xmlSymbolToItemIds))
         {
-            if (validDefIds.Contains(edge.TargetId) || validDefNames.Contains(edge.TargetId.Replace("xml:", "")))
-            {
-                yield return edge;
-            }
+            yield return edge;
         }
     }
-    
+
     #region XML → C# Edge Extraction
 
     //类绑定边（thingClass, workerClass, verbClass, graphicClass等）
@@ -64,7 +60,7 @@ public sealed class XmlGraphExtractor
             "aiController",
             "roomContentsWorkerType"
         };
-        
+
         foreach (var fieldName in classFieldCandidates)
         {
             var className = defElement.Element(fieldName)?.Value;
@@ -78,7 +74,7 @@ public sealed class XmlGraphExtractor
                 };
             }
         }
-        
+
         //嵌套类的title, 如graphicData/graphicClass, verbs/li/verbClass
         var graphicClass = defElement.Descendants("graphicData")
             .Elements("graphicClass")
@@ -92,13 +88,13 @@ public sealed class XmlGraphExtractor
                 Kind = EdgeKind.XmlBindsClass
             };
         }
-        
+
         var verbClasses = defElement.Descendants("verbs")
             .Elements("li")
             .Elements("verbClass")
             .Select(e => e.Value)
             .Where(v => !string.IsNullOrWhiteSpace(v));
-        
+
         foreach (var verbClass in verbClasses)
         {
             yield return new GraphEdge
@@ -117,7 +113,7 @@ public sealed class XmlGraphExtractor
             .Elements("li")
             .Select(li => li.Attribute("Class")?.Value)
             .Where(c => !string.IsNullOrWhiteSpace(c));
-        
+
         foreach (var compClass in compElements)
         {
             yield return new GraphEdge
@@ -128,35 +124,34 @@ public sealed class XmlGraphExtractor
             };
         }
     }
-    
+
     //规范化类名确保包含命名空间
     private string NormalizeClassName(string className)
     {
         //其实是乱写的，主打一个猜
         if (className.Contains('.'))
             return className;
-        
+
         if (className.StartsWith("CompProperties_") || className.StartsWith("Comp_"))
             return $"RimWorld.{className}";
-       
+
         if (className.StartsWith("Verb_"))
             return $"Verse.{className}";
-        
+
         if (className.StartsWith("Graphic_"))
             return $"Verse.{className}";
-       
+
         if (className.StartsWith("Building_") || className.StartsWith("Thing_"))
             return $"RimWorld.{className}";
-      
+
         return $"RimWorld.{className}";
     }
-    
+
     #endregion
-    
+
     #region XML → XML Edge Extraction
-    
-    //提取继承边（ParentName）
-    private GraphEdge? ExtractInheritsEdge(XElement defElement, string defId)
+
+    private IEnumerable<GraphEdge> ExtractInheritsEdges(XElement defElement, string defId, IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds)
     {
         var parentName = defElement.Attribute("ParentName")?.Value;
 
@@ -164,109 +159,106 @@ public sealed class XmlGraphExtractor
         {
             parentName = defElement.Element("ParentName")?.Value;
         }
-        
+
         if (string.IsNullOrWhiteSpace(parentName))
-            return null;
-        
-        return new GraphEdge
         {
-            SourceId = defId,
-            TargetId = $"xml:{parentName}", // Note: This creates partial match, will be resolved in graph builder
-            Kind = EdgeKind.XmlInherits
-        };
+            yield break;
+        }
+
+        var defType = defElement.Name.LocalName;
+        var symbolId = $"xml:{defType}:{parentName}";
+        foreach (var edge in ExpandXmlTargets(defId, new[] { symbolId }, xmlSymbolToItemIds, EdgeKind.XmlInherits))
+        {
+            yield return edge;
+        }
     }
-    
+
     //提取引用边（其实不完整，但是我想不出其他来了）
-    private IEnumerable<GraphEdge> ExtractReferencesEdges(XElement defElement, string defId, string? defType)
+    private IEnumerable<GraphEdge> ExtractReferencesEdges(XElement defElement, string defId, string? defType, IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds)
     {
         return defType switch
         {
-            "RecipeDef" => ExtractRecipeDefReferences(defElement, defId),
-            "PawnKindDef" => ExtractPawnKindDefReferences(defElement, defId),
-            "ResearchProjectDef" => ExtractResearchProjectReferences(defElement, defId),
-            "ThingDef" => ExtractThingDefReferences(defElement, defId),
+            "RecipeDef" => ExtractRecipeDefReferences(defElement, defId, xmlSymbolToItemIds),
+            "PawnKindDef" => ExtractPawnKindDefReferences(defElement, defId, xmlSymbolToItemIds),
+            "ResearchProjectDef" => ExtractResearchProjectReferences(defElement, defId, xmlSymbolToItemIds),
+            "ThingDef" => ExtractThingDefReferences(defElement, defId, xmlSymbolToItemIds),
             _ => Enumerable.Empty<GraphEdge>()
         };
     }
-    
-    private IEnumerable<GraphEdge> ExtractRecipeDefReferences(XElement element, string defId)
-    {
-        var products = element.Descendants("products")
-            .Elements()
-            .Select(e => $"xml:{e.Name.LocalName}");
-        
-        foreach (var productId in products)
-        {
-            yield return new GraphEdge
-            {
-                SourceId = defId,
-                TargetId = productId,
-                Kind = EdgeKind.XmlReferences
-            };
-        }
 
-        var ingredients = element.Descendants("ingredients")
-            .SelectMany(ing => ing.Descendants("thingDefs").Elements())
-            .Select(e => $"xml:{e.Value}");
-        
-        foreach (var ingredientId in ingredients)
+    private static IEnumerable<GraphEdge> ExpandXmlTargets(string sourceId, IEnumerable<string> symbolIds, IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds, EdgeKind kind)
+    {
+        foreach (var symbolId in symbolIds.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            yield return new GraphEdge
+            if (!xmlSymbolToItemIds.TryGetValue(symbolId, out var targetIds))
             {
-                SourceId = defId,
-                TargetId = ingredientId,
-                Kind = EdgeKind.XmlReferences
-            };
+                continue;
+            }
+
+            foreach (var targetId in targetIds)
+            {
+                yield return new GraphEdge
+                {
+                    SourceId = sourceId,
+                    TargetId = targetId,
+                    Kind = kind
+                };
+            }
         }
     }
-    
-    private IEnumerable<GraphEdge> ExtractPawnKindDefReferences(XElement element, string defId)
+
+    private IEnumerable<GraphEdge> ExtractRecipeDefReferences(XElement element, string defId, IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds)
+    {
+        var referencedSymbolIds = element.Descendants("products")
+            .Elements()
+            .Select(e => $"xml:ThingDef:{e.Name.LocalName}")
+            .Concat(element.Descendants("ingredients")
+                .SelectMany(ing => ing.Descendants("thingDefs").Elements())
+                .Select(e => $"xml:ThingDef:{e.Value}"));
+
+        foreach (var edge in ExpandXmlTargets(defId, referencedSymbolIds, xmlSymbolToItemIds, EdgeKind.XmlReferences))
+        {
+            yield return edge;
+        }
+    }
+
+    private IEnumerable<GraphEdge> ExtractPawnKindDefReferences(XElement element, string defId, IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds)
     {
         var race = element.Element("race")?.Value;
-        if (!string.IsNullOrWhiteSpace(race))
+        if (string.IsNullOrWhiteSpace(race))
         {
-            yield return new GraphEdge
-            {
-                SourceId = defId,
-                TargetId = $"xml:{race}",
-                Kind = EdgeKind.XmlReferences
-            };
+            yield break;
+        }
+
+        foreach (var edge in ExpandXmlTargets(defId, new[] { $"xml:ThingDef:{race}" }, xmlSymbolToItemIds, EdgeKind.XmlReferences))
+        {
+            yield return edge;
         }
     }
-    
-    private IEnumerable<GraphEdge> ExtractResearchProjectReferences(XElement element, string defId)
+
+    private IEnumerable<GraphEdge> ExtractResearchProjectReferences(XElement element, string defId, IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds)
     {
-        var prerequisites = element.Descendants("prerequisites")
+        var referencedSymbolIds = element.Descendants("prerequisites")
             .Elements("li")
-            .Select(e => $"xml:{e.Value}");
-        
-        foreach (var prereqId in prerequisites)
+            .Select(e => $"xml:ResearchProjectDef:{e.Value}");
+
+        foreach (var edge in ExpandXmlTargets(defId, referencedSymbolIds, xmlSymbolToItemIds, EdgeKind.XmlReferences))
         {
-            yield return new GraphEdge
-            {
-                SourceId = defId,
-                TargetId = prereqId,
-                Kind = EdgeKind.XmlReferences
-            };
+            yield return edge;
         }
     }
-    
-    private IEnumerable<GraphEdge> ExtractThingDefReferences(XElement element, string defId)
+
+    private IEnumerable<GraphEdge> ExtractThingDefReferences(XElement element, string defId, IReadOnlyDictionary<string, string[]> xmlSymbolToItemIds)
     {
-        var costs = element.Descendants("costList")
+        var referencedSymbolIds = element.Descendants("costList")
             .Elements()
-            .Select(e => $"xml:{e.Name.LocalName}");
-        
-        foreach (var costId in costs)
+            .Select(e => $"xml:ThingDef:{e.Name.LocalName}");
+
+        foreach (var edge in ExpandXmlTargets(defId, referencedSymbolIds, xmlSymbolToItemIds, EdgeKind.XmlReferences))
         {
-            yield return new GraphEdge
-            {
-                SourceId = defId,
-                TargetId = costId,
-                Kind = EdgeKind.XmlReferences
-            };
+            yield return edge;
         }
     }
-    
+
     #endregion
 }

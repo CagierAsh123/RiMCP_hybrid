@@ -54,10 +54,7 @@ public sealed class XmlTitleBuilder
         var desc = GetElement("description");
         if (desc != null)
         {
-            if (desc.Length > 150)
-            {
-                desc = desc.Substring(0, 147) + "...";
-            }
+            desc = TextUtilities.TruncateForDisplay(desc, 150);
             AppendField("Description", desc);
         }
 

@@ -36,12 +36,12 @@ internal sealed class GraphBuilder
         Console.WriteLine("[graph] Creating symbol lookup tables ...");
         var symbolLookup = csharpChunks
             .GroupBy(c => c.SymbolName, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.Select(c => c.Id).ToArray(), StringComparer.OrdinalIgnoreCase);
-        
-        // Group XML chunks by SymbolId to handle duplicates (e.g., same def name in multiple files)
+            .ToDictionary(g => g.Key, g => g.Select(c => c.ItemId).ToArray(), StringComparer.OrdinalIgnoreCase);
+
+        // Group XML chunks by logical SymbolId; keep all concrete item IDs.
         var xmlLookup = xmlChunks
-            .GroupBy(c => c.Id, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(g => g.Key, g => g.First().Id, StringComparer.OrdinalIgnoreCase); // Use first occurrence
+            .GroupBy(c => c.SymbolId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(c => c.ItemId).ToArray(), StringComparer.OrdinalIgnoreCase);
         
 
 
@@ -174,7 +174,7 @@ internal sealed class GraphBuilder
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[graph] failed to process {chunk.Id}: {ex.Message}");
+                Console.Error.WriteLine($"[graph] failed to process {chunk.ItemId}: {ex.Message}");
             }
 
             var current = Interlocked.Increment(ref processed);
@@ -204,7 +204,7 @@ internal sealed class GraphBuilder
             try
             {
                 var element = System.Xml.Linq.XElement.Parse(chunk.Text);
-                var edges = extractor.ExtractXmlToCSharpEdges(element, chunk.Id, chunk.DefType);
+                var edges = extractor.ExtractXmlToCSharpEdges(element, chunk.ItemId, chunk.DefType);
                 
                 foreach (var edge in edges)
                 {
@@ -213,7 +213,7 @@ internal sealed class GraphBuilder
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[graph] Failed to extract XML→C# edges from {chunk.Id}: {ex.Message}");
+                Console.Error.WriteLine($"[graph] Failed to extract XML→C# edges from {chunk.ItemId}: {ex.Message}");
             }
         });
         
@@ -224,10 +224,11 @@ internal sealed class GraphBuilder
     {
         var extractor = new XmlGraphExtractor();
         var edgeBag = new ConcurrentBag<GraphEdge>();
-        
-        // 构建 defName → ChunkRecord 映射，用于验证引用有效性
-        // Include both full SymbolIds and partial names for inheritance matching
-        var validDefIds = new HashSet<string>(xmlChunks.Select(c => c.Id), StringComparer.OrdinalIgnoreCase);
+
+        var validDefIds = new HashSet<string>(xmlChunks.Select(c => c.ItemId), StringComparer.OrdinalIgnoreCase);
+        var xmlSymbolToItemIds = xmlChunks
+            .GroupBy(c => c.SymbolId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Select(c => c.ItemId).ToArray(), StringComparer.OrdinalIgnoreCase);
         var validDefNames = new HashSet<string>(xmlChunks.Select(c => c.SymbolName), StringComparer.OrdinalIgnoreCase);
         
         Parallel.ForEach(xmlChunks, new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism }, chunk =>
@@ -235,7 +236,7 @@ internal sealed class GraphBuilder
             try
             {
                 var element = System.Xml.Linq.XElement.Parse(chunk.Text);
-                var edges = extractor.ExtractXmlToXmlEdges(element, chunk.Id, chunk.DefType, validDefIds, validDefNames);
+                var edges = extractor.ExtractXmlToXmlEdges(element, chunk.ItemId, chunk.DefType, validDefIds, validDefNames, xmlSymbolToItemIds);
                 
                 foreach (var edge in edges)
                 {
@@ -244,7 +245,7 @@ internal sealed class GraphBuilder
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[graph] Failed to extract XML→XML edges from {chunk.Id}: {ex.Message}");
+                Console.Error.WriteLine($"[graph] Failed to extract XML→XML edges from {chunk.ItemId}: {ex.Message}");
             }
         });
         
@@ -285,7 +286,7 @@ internal sealed class GraphBuilder
                 {
                     yield return new GraphEdge
                     {
-                        SourceId = chunk.Id,
+                        SourceId = chunk.ItemId,
                         TargetId = resolved,
                         Kind = EdgeKind.Inherits
                     };
@@ -308,7 +309,7 @@ internal sealed class GraphBuilder
             {
                 yield return new GraphEdge
                 {
-                    SourceId = chunk.Id,
+                    SourceId = chunk.ItemId,
                     TargetId = resolved,
                     Kind = EdgeKind.References
                 };
@@ -329,7 +330,7 @@ internal sealed class GraphBuilder
             {
                 yield return new GraphEdge
                 {
-                    SourceId = chunk.Id,
+                    SourceId = chunk.ItemId,
                     TargetId = resolved,
                     Kind = EdgeKind.Calls
                 };
@@ -345,7 +346,7 @@ internal sealed class GraphBuilder
             {
                 yield return new GraphEdge
                 {
-                    SourceId = chunk.Id,
+                    SourceId = chunk.ItemId,
                     TargetId = resolved,
                     Kind = EdgeKind.References
                 };

@@ -94,7 +94,7 @@ public sealed class RoughSearcher : IDisposable
                 candidateIndices = new List<int>(allEntries.Count);
                 for (var i = 0; i < allEntries.Count; i++)
                 {
-                    var isXml = allEntries[i].Id.StartsWith("xml:", StringComparison.OrdinalIgnoreCase);
+                    var isXml = allEntries[i].SymbolId.StartsWith("xml:", StringComparison.OrdinalIgnoreCase);
                     if ((wantXml && isXml) || (wantCSharp && !isXml))
                     {
                         candidateIndices.Add(i);
@@ -137,7 +137,7 @@ public sealed class RoughSearcher : IDisposable
             semanticMatches = matches;
         }
 
-        Console.WriteLine($"[debug] Lexical: {lexicalMatches.Count}, Semantic (full-corpus): {semanticMatches.Count}");
+        Console.Error.WriteLine($"[debug] Lexical: {lexicalMatches.Count}, Semantic (full-corpus): {semanticMatches.Count}");
 
         return MergeResults(lexicalMatches, semanticMatches, _config.MaxResults);
     }
@@ -261,13 +261,13 @@ public sealed class RoughSearcher : IDisposable
         foreach (var scoreDoc in hits.ScoreDocs)
         {
             var doc = _searcher.Doc(scoreDoc.Doc);
-            var symbolId = doc.Get(LuceneWriter.FieldSymbolId);
-            if (string.IsNullOrEmpty(symbolId))
+            var itemId = doc.Get(LuceneWriter.FieldItemId);
+            if (string.IsNullOrEmpty(itemId))
             {
                 continue;
             }
 
-            results.Add(new LexicalMatch(symbolId, doc, scoreDoc.Score));
+            results.Add(new LexicalMatch(itemId, doc, scoreDoc.Score));
         }
 
         return results;
@@ -297,10 +297,10 @@ public sealed class RoughSearcher : IDisposable
                 .Take(take)
                 .Select(match =>
                 {
-                    var document = FetchDocument(match.Entry.Id);
+                    var document = FetchDocument(match.Entry.ItemId);
                     if (document is null) return null;
                     
-                    return ToResult(match.Entry.Id, document, match.Score / maxScore, "semantic");
+                    return ToResult(match.Entry.ItemId, document, match.Score / maxScore, "semantic");
                 })
                 .Where(result => result is not null)
                 .Select(result => result!)
@@ -315,10 +315,10 @@ public sealed class RoughSearcher : IDisposable
 
         foreach (var match in lexical)
         {
-            if (!candidates.TryGetValue(match.SymbolId, out var candidate))
+            if (!candidates.TryGetValue(match.ItemId, out var candidate))
             {
                 candidate = new Candidate(match.Document);
-                candidates[match.SymbolId] = candidate;
+                candidates[match.ItemId] = candidate;
             }
 
             candidate.SetLexical(match.Score, lexicalMax);
@@ -326,16 +326,16 @@ public sealed class RoughSearcher : IDisposable
 
         foreach (var match in semantic)
         {
-            if (!candidates.TryGetValue(match.Entry.Id, out var candidate))
+            if (!candidates.TryGetValue(match.Entry.ItemId, out var candidate))
             {
-                var document = FetchDocument(match.Entry.Id);
+                var document = FetchDocument(match.Entry.ItemId);
                 if (document is null)
                 {
                     continue;
                 }
 
                 candidate = new Candidate(document);
-                candidates[match.Entry.Id] = candidate;
+                candidates[match.Entry.ItemId] = candidate;
             }
 
             candidate.SetSemantic(match.Score, semanticMax);
@@ -355,10 +355,10 @@ public sealed class RoughSearcher : IDisposable
             .ToList();
     }
 
-    private RoughSearchResult? ToResultFromCandidate(string symbolId, Candidate candidate)
+    private RoughSearchResult? ToResultFromCandidate(string itemId, Candidate candidate)
     {
         var document = candidate.Document;
-        return ToResult(symbolId, document, candidate.FinalScore, candidate switch
+        return ToResult(itemId, document, candidate.FinalScore, candidate switch
         {
             { HasLexical: true, HasSemantic: true } => "mixed",
             { HasLexical: true } => "lexical",
@@ -367,7 +367,7 @@ public sealed class RoughSearcher : IDisposable
         });
     }
 
-    private RoughSearchResult? ToResult(string symbolId, Document document, double score, string source)
+    private RoughSearchResult? ToResult(string itemId, Document document, double score, string source)
     {
         var path = document.Get(LuceneWriter.FieldPath);
         if (string.IsNullOrWhiteSpace(path))
@@ -391,8 +391,12 @@ public sealed class RoughSearcher : IDisposable
         var spanStart = document.GetField(LuceneWriter.FieldSpanStart)?.GetInt32Value() ?? 0;
         var spanEnd = document.GetField(LuceneWriter.FieldSpanEnd)?.GetInt32Value() ?? 0;
 
+        var symbolId = document.Get(LuceneWriter.FieldSymbolId) ?? itemId;
+        var storedItemId = document.Get(LuceneWriter.FieldItemId) ?? itemId;
+
         return new RoughSearchResult
         {
+            ItemId = storedItemId,
             SymbolId = symbolId,
             Path = path,
             Language = language,
@@ -408,9 +412,9 @@ public sealed class RoughSearcher : IDisposable
         };
     }
 
-    private Document? FetchDocument(string symbolId)
+    private Document? FetchDocument(string itemId)
     {
-        var query = new TermQuery(new Term(LuceneWriter.FieldSymbolId, symbolId));
+        var query = new TermQuery(new Term(LuceneWriter.FieldItemId, itemId));
         var hits = _searcher.Search(query, 1);
         if (hits.TotalHits == 0)
         {
@@ -466,7 +470,7 @@ public sealed class RoughSearcher : IDisposable
         _directory.Dispose();
     }
 
-    private readonly record struct LexicalMatch(string SymbolId, Document Document, float Score);
+    private readonly record struct LexicalMatch(string ItemId, Document Document, float Score);
 
     private sealed class Candidate
     {

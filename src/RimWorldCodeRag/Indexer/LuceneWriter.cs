@@ -20,6 +20,7 @@ internal sealed class LuceneWriter : IDisposable
     public const string FieldNamespace = "namespace";
     public const string FieldClass = "class";
     public const string FieldSymbolKind = "symbol_kind";
+    public const string FieldItemId = "item_id";
     public const string FieldSymbolId = "symbol_id";
     public const string FieldSignature = "signature";
     public const string FieldIdentifiers = "identifiers";
@@ -59,8 +60,9 @@ internal sealed class LuceneWriter : IDisposable
                 new StringField(FieldNamespace, chunk.Namespace ?? string.Empty, Field.Store.YES),
                 new StringField(FieldClass, chunk.ContainingType ?? string.Empty, Field.Store.YES),
                 new StringField(FieldSymbolKind, chunk.SymbolKind.ToString().ToLowerInvariant(), Field.Store.YES),
-                new StringField(FieldSymbolId, chunk.Id, Field.Store.YES),
-                new TextField(FieldSymbolId, chunk.Id, Field.Store.NO),
+                new StringField(FieldItemId, chunk.ItemId, Field.Store.YES),
+                new StringField(FieldSymbolId, chunk.SymbolId, Field.Store.YES),
+                new TextField(FieldSymbolId, chunk.SymbolId, Field.Store.NO),
                 new TextField(FieldText, chunk.Text, Field.Store.NO),
                 new StoredField(FieldPreview, chunk.Preview),
                 new Int32Field(FieldSpanStart, chunk.SpanStart, Field.Store.YES),
@@ -101,7 +103,7 @@ internal sealed class LuceneWriter : IDisposable
 
             // Track duplicates before updating
             TrackDuplicate(chunk);
-            _writer.UpdateDocument(new Term(FieldSymbolId, chunk.Id), doc);
+            _writer.UpdateDocument(new Term(FieldItemId, chunk.ItemId), doc);
         }
     }
 
@@ -118,17 +120,24 @@ internal sealed class LuceneWriter : IDisposable
 
     public void Dispose()
     {
-        WriteDuplicateLog();
+        try
+        {
+            WriteDuplicateLog();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[LuceneWriter] Failed to write duplicate log: {ex.Message}");
+        }
         _writer.Dispose();
     }
 
     private void TrackDuplicate(ChunkRecord chunk)
     {
-        if (!_duplicateTracker.ContainsKey(chunk.Id))
+        if (!_duplicateTracker.ContainsKey(chunk.SymbolId))
         {
-            _duplicateTracker[chunk.Id] = new List<ChunkRecord>();
+            _duplicateTracker[chunk.SymbolId] = new List<ChunkRecord>();
         }
-        _duplicateTracker[chunk.Id].Add(chunk);
+        _duplicateTracker[chunk.SymbolId].Add(chunk);
     }
 
     private void WriteDuplicateLog()
@@ -176,12 +185,13 @@ internal sealed class LuceneWriter : IDisposable
             {
                 var chunk = chunks[i];
                 Console.ForegroundColor = ConsoleColor.White;
-                writer.WriteLine($"  [{i + 1}] Path: {chunk.Path}");
+                writer.WriteLine($"  [{i + 1}] ItemId: {chunk.ItemId}");
+                writer.WriteLine($"      Path: {chunk.Path}");
                 writer.WriteLine($"      Language: {chunk.Language}");
                 writer.WriteLine($"      SymbolKind: {chunk.SymbolKind}");
                 writer.WriteLine($"      DefType: {chunk.DefType ?? "N/A"}");
                 writer.WriteLine($"      Signature: {chunk.Signature ?? "N/A"}");
-                writer.WriteLine($"      Preview: {(chunk.Preview?.Length > 100 ? chunk.Preview.Substring(0, 100) + "..." : chunk.Preview ?? "N/A")}");
+                writer.WriteLine($"      Preview: {TextUtilities.TruncateForDisplay(chunk.Preview ?? "N/A", 100)}");
                 Console.ResetColor();
                 writer.WriteLine();
             }

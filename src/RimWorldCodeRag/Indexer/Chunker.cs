@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Xml;
 using System.Xml.Linq;
@@ -33,7 +34,7 @@ internal sealed class Chunker
 
         var files = Directory
             .EnumerateFiles(sourceRoot, "*.*", SearchOption.AllDirectories)
-            .Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            .Where(IsIndexableFile)
             .ToArray();
 
         var changedFiles = FilterChangedFiles(files);
@@ -83,7 +84,7 @@ internal sealed class Chunker
 
         var files = Directory
             .EnumerateFiles(sourceRoot, "*.*", SearchOption.AllDirectories)
-            .Where(p => p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || p.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            .Where(IsIndexableFile)
             .ToArray();
 
         var chunkBag = new ConcurrentBag<ChunkRecord>();
@@ -258,7 +259,7 @@ internal sealed class Chunker
         return BuildChunkRecord(field, file, sourceText, LanguageKind.CSharp, CommonSymbolKind.Field, symbolId.Value, declaration, identifiers);
     }
 
-    private static ChunkRecord BuildChunkRecord(SyntaxNode node, string file, SourceText sourceText, LanguageKind lang, CommonSymbolKind kind, (string SymbolId, string Namespace, string ContainingType, string Name) symbolInfo, string signature, IReadOnlyCollection<string> identifiers)
+    private ChunkRecord BuildChunkRecord(SyntaxNode node, string file, SourceText sourceText, LanguageKind lang, CommonSymbolKind kind, (string SymbolId, string Namespace, string ContainingType, string Name) symbolInfo, string signature, IReadOnlyCollection<string> identifiers)
     {
         var span = node.Span;
         var preview = TextUtilities.BuildPreview(node.ToFullString());
@@ -269,10 +270,12 @@ internal sealed class Chunker
         // Enrich preview with semantic context (parent type + signature) for better embedding quality
         var contextPrefix = BuildContextPrefix(symbolInfo.ContainingType, symbolInfo.Name, signature, kind);
         var enrichedPreview = string.IsNullOrEmpty(contextPrefix) ? preview : $"{contextPrefix}\n{preview}";
+        var itemId = BuildItemId(symbolInfo.SymbolId, file, span.Start, span.End, kind);
 
         return new ChunkRecord
         {
-            Id = symbolInfo.SymbolId,
+            ItemId = itemId,
+            SymbolId = symbolInfo.SymbolId,
             Path = file,
             Language = lang,
             Text = node.ToFullString(),
@@ -483,9 +486,8 @@ internal sealed class Chunker
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            // Include defType and parent in SymbolId to distinguish same defs with different inheritance
-            var parentSuffix = !string.IsNullOrWhiteSpace(parentValue) ? $" <- {parentValue}" : "";
-            var info = (SymbolId: $"xml:{defType}:{defName}{parentSuffix}", Namespace: string.Empty, ContainingType: string.Empty, Name: defName);
+            var logicalSymbolId = $"xml:{defType}:{defName}";
+            var info = (SymbolId: logicalSymbolId, Namespace: string.Empty, ContainingType: string.Empty, Name: defName);
             var lineInfo = (IXmlLineInfo)element;
             var startLine = lineInfo.HasLineInfo() ? lineInfo.LineNumber : 1;
             var endLine = startLine + element.ToString().Count(c => c == '\n');
@@ -493,9 +495,12 @@ internal sealed class Chunker
             var keywordIdentifiers = identifiers.Distinct(StringComparer.OrdinalIgnoreCase).Select(x => x.ToLowerInvariant()).ToArray();
             var tokens = TextUtilities.SplitIdentifiers(keywordIdentifiers).Distinct().ToArray();
 
+            var itemId = BuildItemId(logicalSymbolId, file, startLine, endLine, CommonSymbolKind.XmlDef);
+
             yield return new ChunkRecord
             {
-                Id = info.SymbolId,
+                ItemId = itemId,
+                SymbolId = info.SymbolId,
                 Path = file,
                 Language = LanguageKind.Xml,
                 Text = text,
@@ -510,11 +515,41 @@ internal sealed class Chunker
                 SpanEnd = text.Length,
                 StartLine = startLine,
                 EndLine = endLine,
-                Signature = $"{defType}:{defName}{parentSuffix}",
+                Signature = $"{defType}:{defName}{(!string.IsNullOrWhiteSpace(parentValue) ? $" <- {parentValue}" : string.Empty)}",
                 XmlLinks = xmlLinks,
                 DefType = defType // ← New field
             };
         }
+    }
+
+    private static bool IsIndexableFile(string path)
+    {
+        if (path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!path.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var normalized = path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+        var segments = normalized.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+        return !segments.Any(segment =>
+            segment.Equals("Languages", StringComparison.OrdinalIgnoreCase) ||
+            segment.Equals("DefInjected", StringComparison.OrdinalIgnoreCase) ||
+            segment.Equals("Patches", StringComparison.OrdinalIgnoreCase) ||
+            segment.Equals("About", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string BuildItemId(string symbolId, string file, int startMarker, int endMarker, CommonSymbolKind kind)
+    {
+        var relativePath = Path.GetRelativePath(AppContext.BaseDirectory, file).Replace('\\', '/');
+        var fingerprintSource = $"{symbolId}|{relativePath}|{startMarker}|{endMarker}|{kind}";
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintSource));
+        var suffix = Convert.ToHexString(bytes, 0, 6);
+        return $"{symbolId}@{suffix}";
     }
 
     private static IEnumerable<string> ExtractXmlLinks(string? value)

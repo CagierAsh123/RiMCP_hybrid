@@ -29,9 +29,9 @@ public sealed class ExactRetriever : IDisposable
         _searcher = new IndexSearcher(_reader);
     }
 
-    public ExactRetrievalResult? GetItem(string symbolId, int maxLines = 0)
+    public ExactRetrievalResult? GetItem(string itemId, int maxLines = 0)
     {
-        var query = new TermQuery(new Term(LuceneWriter.FieldSymbolId, symbolId));
+        var query = new TermQuery(new Term(LuceneWriter.FieldItemId, itemId));
         var hits = _searcher.Search(query, 1);
 
         if (hits.TotalHits == 0)
@@ -46,7 +46,7 @@ public sealed class ExactRetriever : IDisposable
 
         if (spanStartField == null || spanEndField == null)
         {
-            throw new InvalidOperationException($"Symbol '{symbolId}' has missing span information");
+            throw new InvalidOperationException($"Item '{itemId}' has missing span information");
         }
 
         var spanStart = spanStartField.GetInt32Value();
@@ -54,7 +54,7 @@ public sealed class ExactRetriever : IDisposable
 
         if (spanStart == null || spanEnd == null)
         {
-            throw new InvalidOperationException($"Symbol '{symbolId}' has invalid span information");
+            throw new InvalidOperationException($"Item '{itemId}' has invalid span information");
         }
 
         string fullCode;
@@ -90,7 +90,7 @@ public sealed class ExactRetriever : IDisposable
 
             if (spanStart.Value < 0 || spanEnd.Value > sourceText.Length || spanStart.Value >= spanEnd.Value)
             {
-                throw new InvalidOperationException($"Symbol '{symbolId}' has invalid span [{spanStart.Value}, {spanEnd.Value}] for file length {sourceText.Length}");
+                throw new InvalidOperationException($"Item '{itemId}' has invalid span [{spanStart.Value}, {spanEnd.Value}] for file length {sourceText.Length}");
             }
 
             fullCode = sourceText.Substring(spanStart.Value, spanEnd.Value - spanStart.Value);
@@ -112,8 +112,11 @@ public sealed class ExactRetriever : IDisposable
         var symbolKindStr = doc.Get(LuceneWriter.FieldSymbolKind);
         var symbolKind = ParseSymbolKind(symbolKindStr);
 
+        var symbolId = doc.Get(LuceneWriter.FieldSymbolId) ?? itemId;
+
         return new ExactRetrievalResult
         {
+            ItemId = itemId,
             SymbolId = symbolId,
             Path = filePath,
             Language = language,

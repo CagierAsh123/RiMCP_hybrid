@@ -6,11 +6,11 @@
       "args": [
         "run",
         "--project",
-        "c:/Users/20828/Desktop/ModDev/RiMCP_hybrid/src/RimWorldCodeRag.McpServer/RimWorldCodeRag.McpServer.csproj"
+        "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/src/RimWorldCodeRag.McpServer/RimWorldCodeRag.McpServer.csproj"
       ],
       "env": {
-        "RIMWORLD_INDEX_ROOT": "c:/Users/20828/Desktop/ModDev/RiMCP_hybrid/index",
-        "RIMWORLD_DATA_ROOT": "c:/Users/20828/Desktop/ModDev/RiMCP_hybrid/RimWorldData"
+        "RIMWORLD_INDEX_ROOT": "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/src/RimWorldCodeRag/index",
+        "RIMWORLD_DATA_ROOT": "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/RimWorldData"
       }
     }
   }

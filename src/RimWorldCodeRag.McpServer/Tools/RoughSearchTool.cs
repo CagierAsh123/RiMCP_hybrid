@@ -20,13 +20,13 @@ public sealed class RoughSearchTool : ITool, IDisposable
     public string Name => "rough_search";
 
     public string Description =>
-        @"Search RimWorld source code (C#) and XML Def definitions. Returns matching symbol names with metadata — use get_item afterwards to read full source code.
+        @"Search RimWorld source code (C#) and XML Def definitions. Returns matching indexed items with metadata — use get_item afterwards to read full source code.
 
 WORKFLOW:
 1. Search with keywords (class names, method names, Def names, or natural language)
-2. Review the returned symbol IDs and signatures
-3. Use get_item with the exact symbolId to read full source code
-4. Use get_uses/get_used_by to explore dependencies
+2. Review the returned itemId and symbolId fields
+3. Use get_item with the exact itemId to read full source code
+4. Use get_uses/get_used_by with itemId for precise dependency exploration
 
 QUERY TIPS:
 - For C# code: use class/method names like 'Need_Food', 'JobDriver_Mine', 'CompPowerTrader'
@@ -40,6 +40,7 @@ COMMON MODDING PATTERNS:
 - To extend behavior: search for the base class, then get_used_by to see existing implementations
 - To find XML structure: search with kind='xml' and the DefType name (e.g. 'ThingDef weapon')
 - XML results include the full Def XML in the preview field";
+
 
     public RoughSearchTool(
         string indexRoot, 
@@ -174,6 +175,7 @@ COMMON MODDING PATTERNS:
         {
                 results = results.Select(r => new
             {
+                itemId = r.ItemId,
                 symbolId = r.SymbolId,
                 kind = r.Language.ToString().ToLowerInvariant(),
                 symbolKind = r.SymbolKind.ToString(),

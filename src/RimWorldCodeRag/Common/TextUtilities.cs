@@ -64,9 +64,54 @@ public static partial class TextUtilities
             return trimmed;
         }
 
-        var sb = new StringBuilder(trimmed, 0, Math.Min(trimmed.Length, maxLength), maxLength + 16);
-        sb.Append(" …");
-        return sb.ToString();
+        return TruncateForDisplay(trimmed, maxLength, " …");
+    }
+
+    public static string TruncateForDisplay(string? text, int maxLength, string ellipsis = "...")
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        if (maxLength <= 0)
+        {
+            return ellipsis;
+        }
+
+        if (text.Length <= maxLength)
+        {
+            return text;
+        }
+
+        var safeLength = FindSafeTruncationBoundary(text, maxLength);
+        if (safeLength <= 0)
+        {
+            return ellipsis;
+        }
+
+        return text[..safeLength] + ellipsis;
+    }
+
+    private static int FindSafeTruncationBoundary(string text, int maxLength)
+    {
+        var length = Math.Min(maxLength, text.Length);
+        if (length <= 0)
+        {
+            return 0;
+        }
+
+        if (length < text.Length && char.IsHighSurrogate(text[length - 1]) && char.IsLowSurrogate(text[length]))
+        {
+            length--;
+        }
+
+        if (length > 0 && char.IsLowSurrogate(text[length - 1]))
+        {
+            length--;
+        }
+
+        return Math.Max(0, length);
     }
 
     [GeneratedRegex("(?<!^)(?=[A-Z][a-z])|(?<=[a-z0-9])(?=[A-Z])")]

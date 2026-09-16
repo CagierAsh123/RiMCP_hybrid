@@ -9,7 +9,7 @@ using RimWorldCodeRag.Retrieval;
 
 namespace RimWorldCodeRag.Indexer;
 
-internal sealed class IndexingPipeline
+public sealed class IndexingPipeline
 {
     private readonly IndexingConfig _config;
     private readonly MetadataStore _metadataStore;
@@ -139,7 +139,8 @@ internal sealed class IndexingPipeline
                 var vector = vectors[j];
                 var json = JsonSerializer.Serialize(new
                 {
-                    id = chunk.Id,
+                    itemId = chunk.ItemId,
+                    symbolId = chunk.SymbolId,
                     path = chunk.Path,
                     signature = chunk.Signature,
                     preview = chunk.Preview,

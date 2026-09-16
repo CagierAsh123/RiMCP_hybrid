@@ -135,7 +135,8 @@ internal sealed class VectorWriter
                 var embedding = embeddings[i];
                 var payload = new
                 {
-                    id = chunk.Id,
+                    itemId = chunk.ItemId,
+                    symbolId = chunk.SymbolId,
                     path = chunk.Path,
                     signature = chunk.Signature,
                     identifiers = chunk.KeywordIdentifiers,
@@ -149,7 +150,8 @@ internal sealed class VectorWriter
 
                 index.Add(new Dictionary<string, object?>
                 {
-                    ["id"] = chunk.Id,
+                    ["itemId"] = chunk.ItemId,
+                    ["symbolId"] = chunk.SymbolId,
                     ["path"] = chunk.Path,
                     ["signature"] = chunk.Signature,
                     ["offset"] = offset

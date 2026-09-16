@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RiMCP — RimWorld Code RAG</title>
+  <link rel="stylesheet" href="lib/prism-tomorrow.min.css">
+  <link rel="stylesheet" href="lib/prism-line-numbers.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ═══ Sidebar ═══ -->
+<nav id="sidebar">
+  <div class="logo">R</div>
+  <button class="nav-btn active" data-page="search" title="Search (Ctrl+K)">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+    </svg>
+  </button>
+  <button class="nav-btn" data-page="settings" title="Settings">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+  </button>
+</nav>
+
+<!-- ═══ Main Content ═══ -->
+<div id="main">
+
+  <!-- ═══ Search Page (3-column) ═══ -->
+  <div id="search-page" class="page active">
+    <!-- Left: Search Panel -->
+    <div id="search-panel">
+      <div id="search-header">
+        <input type="text" id="search-input" placeholder="Search symbols... (e.g. Need_Food, Steel)">
+        <div class="kind-filters">
+          <button class="kind-btn" data-kind="cs">C#</button>
+          <button class="kind-btn" data-kind="xml">XML</button>
+        </div>
+      </div>
+      <div id="search-results">
+        <div style="padding:20px;text-align:center;color:var(--ctp-overlay0)">
+          Type to search RimWorld source code
+        </div>
+      </div>
+      <div id="search-status"></div>
+    </div>
+
+    <!-- Middle: Code Viewer -->
+    <div id="code-panel">
+      <div id="code-header">
+        <div class="ch-symbol">Code Viewer</div>
+        <div class="ch-path">Click a search result to view source code</div>
+      </div>
+      <div id="code-content">
+        <div class="code-placeholder">Select a symbol to view its source code</div>
+      </div>
+    </div>
+
+    <!-- Right: Graph -->
+    <div id="graph-panel">
+      <div id="graph-toolbar">
+        <button class="graph-btn" id="btn-fit" title="Fit to screen">Fit</button>
+        <button class="graph-btn" id="btn-relayout" title="Re-layout">Layout</button>
+        <button class="graph-btn" id="btn-clear" title="Clear graph">Clear</button>
+        <button class="graph-btn" id="btn-fullscreen" title="Toggle fullscreen">⛶</button>
+      </div>
+      <div id="graph-container">
+        <div class="graph-placeholder">Click a result to add to graph. Double-click to expand dependencies.</div>
+      </div>
+      <div id="graph-info">0 nodes · 0 edges</div>
+      <div id="graph-legend">
+        <div><span class="legend-dot" style="background:#89b4fa"></span>Type</div>
+        <div><span class="legend-dot" style="background:#cba6f7"></span>Method</div>
+        <div><span class="legend-dot" style="background:#fab387"></span>Field</div>
+        <div><span class="legend-dot" style="background:#f9e2af"></span>XmlDef</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Settings Page ═══ -->
+  <div id="settings-page" class="page">
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-tab="tab-index">Index Management</button>
+      <button class="settings-tab" data-tab="tab-mcp">MCP Config</button>
+      <button class="settings-tab" data-tab="tab-models">Models</button>
+    </div>
+
+    <!-- Tab: Index -->
+    <div id="tab-index" class="tab-content active">
+      <div class="setting-group">
+        <h3>Index Information</h3>
+        <div class="setting-row">
+          <label>Index Root</label>
+          <span id="idx-root" style="font-size:13px;color:var(--ctp-subtext0)">—</span>
+        </div>
+        <div class="setting-row">
+          <label>Index Exists</label>
+          <span id="idx-exists" style="font-size:13px">—</span>
+        </div>
+        <div class="stat-grid" id="idx-stats"></div>
+      </div>
+      <div class="setting-group">
+        <h3>Build Index</h3>
+        <button class="btn btn-primary" onclick="Indexer.showBuildDialog()">Build Index...</button>
+        <span id="build-status" style="margin-left:12px;font-size:13px;color:var(--ctp-subtext0)"></span>
+        <div class="progress-bar" id="build-progress" style="display:none"><div class="fill" style="width:0%"></div></div>
+        <div id="build-log" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- Tab: MCP Config -->
+    <div id="tab-mcp" class="tab-content">
+      <div class="setting-group">
+        <h3>Configuration</h3>
+        <div class="setting-row"><label>Index Root</label><input type="text" id="cfg-indexRoot"></div>
+        <div class="setting-row"><label>Embedding Server URL</label><input type="text" id="cfg-embeddingUrl"></div>
+        <div class="setting-row"><label>API Key</label><input type="text" id="cfg-apiKey" placeholder="(optional)"></div>
+        <div class="setting-row"><label>Model Name</label><input type="text" id="cfg-modelName" placeholder="(optional)"></div>
+        <div class="setting-row"><label>Web Port</label><input type="text" id="cfg-port"></div>
+        <div style="margin-top:16px;display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="Settings.saveConfig()">Save Config</button>
+          <button class="btn btn-secondary" onclick="Settings.generateSnippet()">Generate MCP Snippet</button>
+        </div>
+      </div>
+      <div id="mcp-snippet-output"></div>
+    </div>
+
+    <!-- Tab: Models -->
+    <div id="tab-models" class="tab-content">
+      <div class="setting-group">
+        <h3>Installed Models</h3>
+        <div id="model-list"></div>
+      </div>
+      <div class="setting-group">
+        <h3>Embedding Server</h3>
+        <div class="setting-row">
+          <label>Status</label>
+          <span id="embed-status"><span class="status-dot red"></span>Stopped</span>
+        </div>
+        <div class="setting-row">
+          <label>URL</label>
+          <span id="embed-url" style="font-size:13px;color:var(--ctp-subtext0)">—</span>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn btn-primary" id="btn-start-embed" onclick="Settings.startEmbedding()">Start Server</button>
+          <button class="btn btn-danger" id="btn-stop-embed" onclick="Settings.stopEmbedding()" disabled>Stop Server</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- ═══ Scripts ═══ -->
+<script src="lib/cytoscape.min.js"></script>
+<script src="lib/layout-base.js"></script>
+<script src="lib/cose-base.js"></script>
+<script src="lib/cytoscape-fcose.js"></script>
+<script src="lib/prism.min.js"></script>
+<script src="lib/prism-csharp.min.js"></script>
+<script src="lib/prism-markup.min.js"></script>
+<script src="lib/prism-line-numbers.min.js"></script>
+<script src="js/api.js"></script>
+<script src="js/code-viewer.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/search.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/indexer.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

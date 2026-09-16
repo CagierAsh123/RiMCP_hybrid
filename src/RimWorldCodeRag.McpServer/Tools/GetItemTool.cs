@@ -16,15 +16,16 @@ public sealed class GetItemTool : ITool, IDisposable
     public string Name => "get_item";
 
     public string Description =>
-        @"Retrieve complete source code for a specific symbol by its exact ID. Use this after rough_search, get_uses, or get_used_by to read the actual code.
+        @"Retrieve complete source code for a specific indexed item. Use this after rough_search, get_uses, or get_used_by to read the actual code.
 
-INPUT: The symbolId field from search results (copy it exactly).
-- C# symbols: 'RimWorld.Need_Food', 'Verse.Thing.public virtual void Tick()'
-- XML Defs: 'xml:ThingDef:Steel', 'xml:RecipeDef:Make_ComponentIndustrial'
+INPUT: Prefer the itemId field from search results. rough_search also returns symbolId for display.
+- itemId examples: 'RimWorld.Pawn@A1B2C3', 'xml:ThingDef:Steel@4D5E6F'
+- symbolId examples: 'RimWorld.Need_Food', 'xml:ThingDef:Steel'
 
 OUTPUT: Full source code, file path, namespace, class hierarchy, and metadata.
 
-If the symbol is not found, use rough_search to find the correct symbolId first.";
+If the item is not found, use rough_search to find the correct itemId first.";
+
 
     public GetItemTool(string indexRoot)
     {
@@ -49,8 +50,8 @@ If the symbol is not found, use rough_search to find the correct symbolId first.
                 symbol = new
                 {
                     type = "string",
-                    description = "Symbol ID to retrieve. Examples: 'RimWorld.Pawn' (C# class), 'RimWorld.Thing.Tick' (C# method), 'xml:Steel' (XML definition)",
-                    pattern = "^([A-Za-z0-9_\\.]+|xml:[A-Za-z0-9_]+)$"
+                    description = "Item ID to retrieve. Prefer the itemId field returned by rough_search/get_uses/get_used_by. Examples: 'RimWorld.Pawn@A1B2C3', 'xml:ThingDef:Steel@4D5E6F'",
+                    minLength = 1
                 },
                 max_lines = new
                 {
@@ -96,14 +97,14 @@ If the symbol is not found, use rough_search to find the correct symbolId first.
             return new
             {
                 error = true,
-                symbolId = symbol,
-                message = $"Symbol '{symbol}' not found in the index. This usually means the symbolId is incorrect or incomplete.",
+                itemId = symbol,
+                message = $"Item '{symbol}' not found in the index. This usually means the itemId is incorrect or stale.",
                 suggestions = new[]
                 {
-                    $"Use rough_search with query '{symbol.Replace(".", " ").Replace("xml:", "")}' to find the correct symbolId.",
-                    "Copy the exact symbolId from rough_search results — do not modify it.",
-                    "C# symbols look like: 'RimWorld.Need_Food' or 'Verse.Thing.public virtual void Tick()'",
-                    "XML symbols look like: 'xml:ThingDef:Steel' or 'xml:RecipeDef:Make_ComponentIndustrial'"
+                    "Use rough_search first and copy the exact itemId field from its results.",
+                    "Do not pass the display symbolId when multiple mods share the same symbol.",
+                    "C# itemIds look like: 'RimWorld.Need_Food@A1B2C3'",
+                    "XML itemIds look like: 'xml:ThingDef:Steel@4D5E6F'"
                 }
             };
         }
@@ -111,6 +112,7 @@ If the symbol is not found, use rough_search to find the correct symbolId first.
         // 转换为MCP响应格式
         var response = new
         {
+            itemId = result.ItemId,
             symbolId = result.SymbolId,
             language = result.Language.ToString().ToLowerInvariant(),
             symbolKind = result.SymbolKind.ToString(),

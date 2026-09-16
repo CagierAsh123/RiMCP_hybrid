@@ -15,8 +15,9 @@ public sealed class GraphQuerier : IDisposable
     private readonly JaroWinkler _jaroWinkler = new JaroWinkler();
 
     private readonly string _basePath;
-    private readonly Dictionary<int, string> _indexToSymbol;
-    private readonly Dictionary<string, int> _symbolToIndex;
+    private readonly Dictionary<int, GraphNodeRecord> _indexToNode;
+    private readonly Dictionary<string, int> _itemIdToIndex;
+    private readonly Dictionary<string, List<int>> _symbolToIndexes;
     
     //行优先的压缩稀疏矩阵图
     private readonly int[] _csrRowPointers;
@@ -38,8 +39,8 @@ public sealed class GraphQuerier : IDisposable
     {
         _basePath = basePath;
         
-        (_indexToSymbol, _symbolToIndex) = LoadNodes(basePath + ".nodes.tsv");
-        _nodeCount = _indexToSymbol.Count;
+        (_indexToNode, _itemIdToIndex, _symbolToIndexes) = LoadNodes(basePath + ".nodes.tsv");
+        _nodeCount = _indexToNode.Count;
         
         (_csrRowPointers, _csrColumnIndices, _csrKinds) = LoadBinary(basePath + ".csr.bin", "CSR1");
         
@@ -65,7 +66,8 @@ public sealed class GraphQuerier : IDisposable
     //执行检索
     public PagedGraphQueryResult Query(GraphQueryConfig config)
     {
-        if (!_symbolToIndex.TryGetValue(config.SymbolId, out var nodeIndex))
+        var startIndexes = ResolveStartIndexes(config);
+        if (startIndexes.Count == 0)
         {
             return new PagedGraphQueryResult
             {
@@ -76,62 +78,77 @@ public sealed class GraphQuerier : IDisposable
             };
         }
 
-        var edges = config.Direction == GraphDirection.Uses
-            ? GetOutgoingEdges(nodeIndex)
-            : GetIncomingEdges(nodeIndex);
-
-        edges = edges.Where(e => IsEdgeValidForDirection(DecodeKind(e.Kind), config.Direction));
-        //类型筛选
-        if (!string.IsNullOrWhiteSpace(config.Kind))
+        var allResults = new List<GraphQueryResult>();
+        foreach (var nodeIndex in startIndexes)
         {
-            edges = FilterByKind(edges, config.Kind, config.Direction);
+            var originNode = _indexToNode[nodeIndex];
+            var edges = config.Direction == GraphDirection.Uses
+                ? GetOutgoingEdges(nodeIndex)
+                : GetIncomingEdges(nodeIndex);
+
+            edges = edges.Where(e => IsEdgeValidForDirection(DecodeKind(e.Kind), config.Direction));
+            if (!string.IsNullOrWhiteSpace(config.Kind))
+            {
+                edges = FilterByKind(edges, config.Kind, config.Direction);
+            }
+
+            var nodeResults = edges
+                .GroupBy(e => new
+                {
+                    Node = config.Direction == GraphDirection.Uses ? _indexToNode[e.TargetIndex] : _indexToNode[e.SourceIndex],
+                    EdgeKind = DecodeKind(e.Kind)
+                })
+                .Select(g =>
+                {
+                    var node = g.Key.Node;
+                    var edgeKind = g.Key.EdgeKind;
+                    var duplicateCount = g.Count();
+
+                    var rawPageRank = _pageRankScores.TryGetValue(node.ItemId, out var pr)
+                        ? pr
+                        : _pageRankScores.TryGetValue(node.SymbolId, out pr)
+                            ? pr
+                            : 0.0;
+                    var scaledPageRank = rawPageRank * PageRankScaleFactor;
+
+                    var edgeWeight = _edgeWeights.TryGetValue(edgeKind, out var ew) ? ew : 0.1;
+                    var lexicalBonus = _jaroWinkler.Similarity(originNode.SymbolId, node.SymbolId);
+
+                    var initialScore = scaledPageRank * edgeWeight;
+                    var finalScore = (initialScore * Math.Sqrt(duplicateCount)) * lexicalBonus;
+
+                    return new GraphQueryResult
+                    {
+                        ItemId = node.ItemId,
+                        SymbolId = node.SymbolId,
+                        EdgeKind = edgeKind,
+                        Distance = 1,
+                        Score = finalScore,
+                        PageRank = scaledPageRank,
+                        DuplicateCount = duplicateCount
+                    };
+                });
+
+            allResults.AddRange(nodeResults);
         }
 
-        var allResults = edges
-            .GroupBy(e => new { 
-                SymbolId = config.Direction == GraphDirection.Uses ? _indexToSymbol[e.TargetIndex] : _indexToSymbol[e.SourceIndex], 
-                EdgeKind = DecodeKind(e.Kind) 
-            })
-            .Select(g =>
-            {
-                var symbolId = g.Key.SymbolId;
-                var edgeKind = g.Key.EdgeKind;
-                var duplicateCount = g.Count();
-
-                var rawPageRank = _pageRankScores.TryGetValue(symbolId, out var pr) ? pr : 0.0;
-                var scaledPageRank = rawPageRank * PageRankScaleFactor;
-
-                var edgeWeight = _edgeWeights.TryGetValue(edgeKind, out var ew) ? ew : 0.1; // Default to low weight
-                
-                // Lexical bonus as a tie-breaker
-                var lexicalBonus = _jaroWinkler.Similarity(config.SymbolId, symbolId);
-
-                var initialScore = scaledPageRank * edgeWeight;
-                var finalScore = (initialScore * Math.Sqrt(duplicateCount)) * lexicalBonus;
-
-                return new GraphQueryResult
-                {
-                    SymbolId = symbolId,
-                    EdgeKind = edgeKind,
-                    Distance = 1,
-                    Score = finalScore,
-                    PageRank = scaledPageRank,
-                    DuplicateCount = duplicateCount
-                };
-            })
+        var mergedResults = allResults
+            .GroupBy(r => new { r.ItemId, r.EdgeKind })
+            .Select(g => g.OrderByDescending(r => r.Score).First())
             .OrderByDescending(r => r.Score)
-            .ThenBy(r => r.SymbolId, StringComparer.Ordinal) // Stable sort
+            .ThenBy(r => r.SymbolId, StringComparer.Ordinal)
+            .ThenBy(r => r.ItemId, StringComparer.Ordinal)
             .ToList();
 
-        var pagedResults = allResults
+        var pagedResults = mergedResults
             .Skip((config.Page - 1) * PageSize)
             .Take(PageSize)
             .ToList();
-        
+
         return new PagedGraphQueryResult
         {
             Results = pagedResults,
-            TotalCount = allResults.Count,
+            TotalCount = mergedResults.Count,
             Page = config.Page,
             PageSize = PageSize
         };
@@ -185,12 +202,12 @@ public sealed class GraphQuerier : IDisposable
 
         return edges.Where(e =>
         {
-            var resultSymbol = direction == GraphDirection.Uses
-                ? _indexToSymbol[e.TargetIndex]
-                : _indexToSymbol[e.SourceIndex];
-            
-            var resultIsCSharp = IsCSharpNode(resultSymbol);
-            var resultIsXml = IsXmlNode(resultSymbol);
+            var resultNode = direction == GraphDirection.Uses
+                ? _indexToNode[e.TargetIndex]
+                : _indexToNode[e.SourceIndex];
+
+            var resultIsCSharp = IsCSharpNode(resultNode.SymbolId);
+            var resultIsXml = IsXmlNode(resultNode.SymbolId);
             
             if (wantCSharp)
             {
@@ -250,20 +267,36 @@ public sealed class GraphQuerier : IDisposable
         _ => EdgeKind.References 
     };
 
-    private static (Dictionary<int, string>, Dictionary<string, int>) LoadNodes(string path)
+    private IReadOnlyList<int> ResolveStartIndexes(GraphQueryConfig config)
+    {
+        if (!string.IsNullOrWhiteSpace(config.ItemId) && _itemIdToIndex.TryGetValue(config.ItemId, out var itemIndex))
+        {
+            return new[] { itemIndex };
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.SymbolId) && _symbolToIndexes.TryGetValue(config.SymbolId, out var symbolIndexes))
+        {
+            return symbolIndexes;
+        }
+
+        return Array.Empty<int>();
+    }
+
+    private static (Dictionary<int, GraphNodeRecord>, Dictionary<string, int>, Dictionary<string, List<int>>) LoadNodes(string path)
     {
         if (!File.Exists(path))
         {
             throw new FileNotFoundException($"Graph nodes file not found: {path}");
         }
 
-        var indexToSymbol = new Dictionary<int, string>();
-        var symbolToIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        var indexToNode = new Dictionary<int, GraphNodeRecord>();
+        var itemIdToIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        var symbolToIndexes = new Dictionary<string, List<int>>(StringComparer.Ordinal);
 
         foreach (var line in File.ReadLines(path, Encoding.UTF8))
         {
             var parts = line.Split('\t');
-            if (parts.Length != 2)
+            if (parts.Length < 2)
             {
                 continue;
             }
@@ -273,12 +306,23 @@ public sealed class GraphQuerier : IDisposable
                 continue;
             }
 
-            var symbol = parts[1];
-            indexToSymbol[index] = symbol;
-            symbolToIndex[symbol] = index;
+            var itemId = parts[1];
+            var symbolId = parts.Length >= 3 && !string.IsNullOrWhiteSpace(parts[2]) ? parts[2] : itemId;
+            var node = new GraphNodeRecord(itemId, symbolId);
+
+            indexToNode[index] = node;
+            itemIdToIndex[itemId] = index;
+
+            if (!symbolToIndexes.TryGetValue(symbolId, out var indexes))
+            {
+                indexes = new List<int>();
+                symbolToIndexes[symbolId] = indexes;
+            }
+
+            indexes.Add(index);
         }
 
-        return (indexToSymbol, symbolToIndex);
+        return (indexToNode, itemIdToIndex, symbolToIndexes);
     }
 
     private static Dictionary<string, double> LoadPageRank(string path)
@@ -354,6 +398,18 @@ public sealed class GraphQuerier : IDisposable
     public void Dispose()
     {
         //好像没啥需要释放的，索性全删了
+    }
+
+    private readonly struct GraphNodeRecord
+    {
+        public GraphNodeRecord(string itemId, string symbolId)
+        {
+            ItemId = itemId;
+            SymbolId = symbolId;
+        }
+
+        public string ItemId { get; }
+        public string SymbolId { get; }
     }
 
     private readonly struct RawEdge

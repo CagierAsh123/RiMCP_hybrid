@@ -55,7 +55,7 @@ public static class SparseGraphWriter
         var indexToNode = new Dictionary<int, string>(nodes.Count);
         for (var i = 0; i < nodes.Count; i++)
         {
-            var id = nodes[i].Id;
+            var id = nodes[i].ItemId;
             nodeToIndex[id] = i;
             indexToNode[i] = id;
         }
@@ -189,7 +189,9 @@ public static class SparseGraphWriter
         {
             writer.Write(i.ToString(CultureInfo.InvariantCulture));
             writer.Write('\t');
-            writer.WriteLine(nodes[i].Id);
+            writer.Write(nodes[i].ItemId);
+            writer.Write('\t');
+            writer.WriteLine(nodes[i].SymbolId);
         }
     }
 

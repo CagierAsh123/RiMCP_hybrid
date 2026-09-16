@@ -55,7 +55,7 @@ internal sealed class PythonEmbeddingGenerator : IEmbeddingGenerator
             Mode = "passage",
             Items = chunks.Select(c => new PythonEmbeddingItem
             {
-                Id = c.Id,
+                Id = c.ItemId,
                 Text = string.IsNullOrWhiteSpace(c.Text) ? null : c.Text,
                 Preview = string.IsNullOrWhiteSpace(c.Preview) ? null : c.Preview
             }).ToList()

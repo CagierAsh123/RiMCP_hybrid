@@ -6,6 +6,8 @@ using RimWorldCodeRag.Common;
 public sealed class ExactRetrievalResult
 {
 
+    public required string ItemId { get; init; }
+
     public required string SymbolId { get; init; }
 
     public required string Path { get; init; }

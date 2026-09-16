@@ -26,10 +26,11 @@ USE CASES:
 - Tracing implementation logic: what other systems does this feature touch?
 - Finding XML→C# bindings: what C# class does a Def use?
 
-INPUT: Exact symbolId from search results. Use rough_search first if you don't have one.
+INPUT: Prefer the itemId field from search results. You may also pass a symbolId to query all matching duplicates.
 OUTPUT: List of dependency edges with type (Inherits/Calls/References/XmlBindsClass/etc).
 
-After finding interesting dependencies, use get_item to read their full source code.";
+After finding interesting dependencies, use get_item with itemId to read their full source code.";
+
 
     public GetUsesTool(string indexRoot)
     {
@@ -55,8 +56,8 @@ After finding interesting dependencies, use get_item to read their full source c
                 symbol = new
                 {
                     type = "string",
-                    description = "Symbol ID to analyze. Examples: 'RimWorld.Pawn', 'Verse.Thing.Tick', 'RimWorld.JobDriver_Mine', 'xml:Steel'",
-                    pattern = "^([A-Za-z0-9_\\.]+|xml:[A-Za-z0-9_]+)$"
+                    description = "Item ID or symbol ID to analyze. Prefer itemId from rough_search for precise graph traversal; symbolId queries fan out across duplicates.",
+                    minLength = 1
                 },
                 kind = new
                 {
@@ -143,9 +144,11 @@ After finding interesting dependencies, use get_item to read their full source c
 
         var config = new Common.GraphQueryConfig
         {
+            ItemId = symbol.Contains('@', StringComparison.Ordinal) ? symbol : null,
             SymbolId = symbol,
             Direction = Common.GraphDirection.Uses,
             Kind = kind == "all" ? null : kind,
+            Page = page,
             MaxDepth = depth
         };
 
@@ -158,9 +161,11 @@ After finding interesting dependencies, use get_item to read their full source c
 
         var response = new
         {
+            sourceItem = config.ItemId,
             sourceSymbol = symbol,
             edges = pagedEdges.Select(e => new
             {
+                itemId = e.ItemId,
                 targetSymbol = e.SymbolId,
                 edgeKind = e.EdgeKind.ToString(),
                 edgeLabel = GetEdgeLabel(e.EdgeKind),

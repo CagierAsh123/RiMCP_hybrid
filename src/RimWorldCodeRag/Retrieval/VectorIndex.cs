@@ -9,20 +9,15 @@ namespace RimWorldCodeRag.Retrieval;
 internal sealed class VectorIndex
 {
     private readonly List<VectorIndexEntry> _entries;
-    private readonly Dictionary<string, VectorIndexEntry> _byId;
+    private readonly Dictionary<string, VectorIndexEntry> _byItemId;
 
     private VectorIndex(List<VectorIndexEntry> entries)
     {
         _entries = entries;
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        _byId = new Dictionary<string, VectorIndexEntry>(StringComparer.OrdinalIgnoreCase);
+        _byItemId = new Dictionary<string, VectorIndexEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries)
         {
-            if (!seen.Add(entry.Id))
-            {
-                continue;
-            }
-            _byId[entry.Id] = entry;
+            _byItemId[entry.ItemId] = entry;
         }
     }
 
@@ -37,7 +32,6 @@ internal sealed class VectorIndex
         var entries = new List<VectorIndexEntry>();
     using var stream = File.OpenRead(path);
         using var reader = new StreamReader(stream);
-    var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         string? line;
         while ((line = reader.ReadLine()) != null)
@@ -51,16 +45,18 @@ internal sealed class VectorIndex
             {
                 using var doc = JsonDocument.Parse(line);
                 var root = doc.RootElement;
-                if (!root.TryGetProperty("id", out var idProp))
+                if (!root.TryGetProperty("itemId", out var itemIdProp))
                 {
                     continue;
                 }
 
-                var id = idProp.GetString();
-                if (string.IsNullOrWhiteSpace(id))
+                var itemId = itemIdProp.GetString();
+                if (string.IsNullOrWhiteSpace(itemId))
                 {
                     continue;
                 }
+
+                var symbolId = root.TryGetProperty("symbolId", out var symbolIdProp) ? symbolIdProp.GetString() ?? string.Empty : string.Empty;
 
                 var pathValue = root.TryGetProperty("path", out var pathProp) ? pathProp.GetString() ?? string.Empty : string.Empty;
                 var signatureValue = root.TryGetProperty("signature", out var sigProp) ? sigProp.GetString() : null;
@@ -92,14 +88,10 @@ internal sealed class VectorIndex
                         .ToArray();
                 }
 
-                if (!seen.Add(id))
-                {
-                    continue;
-                }
-
                 entries.Add(new VectorIndexEntry
                 {
-                    Id = id!,
+                    ItemId = itemId!,
+                    SymbolId = symbolId,
                     Path = pathValue,
                     Signature = signatureValue,
                     Preview = previewValue,
@@ -120,9 +112,9 @@ internal sealed class VectorIndex
 
     public int VectorDimensions => _entries.Count == 0 ? 0 : _entries[0].Vector.Length;
 
-    public VectorIndexEntry? GetById(string id)
+    public VectorIndexEntry? GetById(string itemId)
     {
-        return _byId.TryGetValue(id, out var entry) ? entry : null;
+        return _byItemId.TryGetValue(itemId, out var entry) ? entry : null;
     }
 
     public IReadOnlyList<VectorMatch> FindNearest(float[] queryVector, int k)
@@ -181,7 +173,8 @@ internal sealed class VectorIndex
 
 internal sealed record VectorIndexEntry
 {
-    public required string Id { get; init; }
+    public required string ItemId { get; init; }
+    public required string SymbolId { get; init; }
     public required string Path { get; init; }
     public string? Signature { get; init; }
     public required string Preview { get; init; }

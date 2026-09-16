@@ -4,6 +4,7 @@ namespace RimWorldCodeRag.Retrieval;
 
 public sealed class RoughSearchResult
 {
+    public required string ItemId { get; init; }
     public required string SymbolId { get; init; }
     public required string Path { get; init; }
     public required LanguageKind Language { get; init; }

@@ -207,7 +207,7 @@ public static class Program
 
             foreach (var result in results)
             {
-                Console.WriteLine($"[{result.Source}] score={result.Score:F3} symbol={result.SymbolId}");
+                Console.WriteLine($"[{result.Source}] score={result.Score:F3} item={result.ItemId} symbol={result.SymbolId}");
                 Console.WriteLine($"  path: {result.Path}");
                 Console.WriteLine($"  lang: {result.Language}; kind: {result.SymbolKind}");
                 if (!string.IsNullOrWhiteSpace(result.Signature))
@@ -246,6 +246,7 @@ public static class Program
 
         var config = new GraphQueryConfig
         {
+            ItemId = symbol.Contains('@', StringComparison.Ordinal) ? symbol : null,
             SymbolId = symbol,
             Direction = GraphDirection.Uses,
             Kind = kind,
@@ -267,7 +268,7 @@ public static class Program
             Console.WriteLine($"[get-uses] {symbol} uses {pagedResult.TotalCount} symbol(s) (kind={kind ?? "all"}) - Page {pagedResult.Page}/{totalPages}");
             foreach (var result in pagedResult.Results)
             {
-                Console.WriteLine($"  [{result.EdgeKind}] Score={result.Score:F4} (PR={result.PageRank:F4} Dups={result.DuplicateCount}) Symbol={result.SymbolId}");
+                Console.WriteLine($"  [{result.EdgeKind}] Score={result.Score:F4} (PR={result.PageRank:F4} Dups={result.DuplicateCount}) Item={result.ItemId} Symbol={result.SymbolId}");
             }
 
             return 0;
@@ -301,6 +302,7 @@ public static class Program
 
         var config = new GraphQueryConfig
         {
+            ItemId = symbol.Contains('@', StringComparison.Ordinal) ? symbol : null,
             SymbolId = symbol,
             Direction = GraphDirection.UsedBy,
             Kind = kind,
@@ -322,7 +324,7 @@ public static class Program
             Console.WriteLine($"[get-used-by] {symbol} is used by {pagedResult.TotalCount} symbol(s) (kind={kind ?? "all"}) - Page {pagedResult.Page}/{totalPages}");
             foreach (var result in pagedResult.Results)
             {
-                Console.WriteLine($"  [{result.EdgeKind}] Score={result.Score:F4} (PR={result.PageRank:F4} Dups={result.DuplicateCount}) Symbol={result.SymbolId}");
+                Console.WriteLine($"  [{result.EdgeKind}] Score={result.Score:F4} (PR={result.PageRank:F4} Dups={result.DuplicateCount}) Item={result.ItemId} Symbol={result.SymbolId}");
             }
 
             return 0;
@@ -348,7 +350,7 @@ public static class Program
             if (!options.TryGetValue("symbol", out var symbolId) || string.IsNullOrWhiteSpace(symbolId))
             {
                 Console.Error.WriteLine("Error: --symbol is required.");
-                Console.Error.WriteLine("Usage: get-item --symbol <id> [--max-lines <n>] [--lucene <path>]");
+                Console.Error.WriteLine("Usage: get-item --symbol <item-id> [--max-lines <n>] [--lucene <path>]");
                 return 1;
             }
 
@@ -371,12 +373,13 @@ public static class Program
 
             if (result == null)
             {
-                Console.Error.WriteLine($"Error: Symbol not found: '{symbolId}'");
-                Console.Error.WriteLine("Hint: Use 'rough-search' to find available symbols.");
+                Console.Error.WriteLine($"Error: Item not found: '{symbolId}'");
+                Console.Error.WriteLine("Hint: Use 'rough-search' to find available item IDs.");
                 return 1;
             }
 
             // Print metadata header
+            Console.WriteLine($"Item: {result.ItemId}");
             Console.WriteLine($"Symbol: {result.SymbolId}");
             Console.WriteLine($"Type: {result.SymbolKind}");
             Console.WriteLine($"Language: {result.Language}");
@@ -433,7 +436,7 @@ public static class Program
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --kind <type>     Filter by type: 'csharp'/'cs' (C# only), 'xml'/'def' (XML Defs only), or omit for all");
-        Console.WriteLine("  --symbol <id>     Symbol ID (e.g., 'xml:Gun_Revolver' or 'RimWorld.Thing')");
+        Console.WriteLine("  --symbol <id>     Item ID or symbol ID. Prefer item IDs from rough-search/get-uses/get-used-by for precise retrieval");
         Console.WriteLine("  --max-lines <n>   Limit output to first N lines (0 = show all, default: 0)");
         Console.WriteLine("  --graph <path>    Path to graph files (default: 'index/graph')");
         Console.WriteLine("  --lucene <dir>    Path to Lucene index directory (default: 'index/lucene')");

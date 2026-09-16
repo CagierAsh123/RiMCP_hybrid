@@ -8,7 +8,7 @@
                                                               "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/src/RimWorldCodeRag.McpServer/RimWorldCodeRag.McpServer.csproj"
                                                           ],
                                                  "env":  {
-                                                             "RIMWORLD_INDEX_ROOT":  "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/index",
+                                                             "RIMWORLD_INDEX_ROOT":  "B:/RiMCP_hybrid-master/RiMCP_hybrid-master/src/RimWorldCodeRag/index",
                                                              "EMBEDDING_SERVER_URL":  "http://127.0.0.1:5000"
                                                          }
                                              }

@@ -20,7 +20,9 @@ public enum SymbolKind
 
 public sealed class ChunkRecord
 {
-    public required string Id { get; init; }
+    public required string ItemId { get; init; }
+    public required string SymbolId { get; init; }
+    public string Id => SymbolId;
     public required string Path { get; init; }
     public required LanguageKind Language { get; init; }
     public required string Text { get; init; }
@@ -37,7 +39,7 @@ public sealed class ChunkRecord
     public required int EndLine { get; init; }
     public string? Signature { get; init; }
     public string[] XmlLinks { get; init; } = Array.Empty<string>();
-    
+
     // For XML Defs: the DefType (e.g., "ThingDef", "RecipeDef").
     // For C# code: null.
     public string? DefType { get; init; }
