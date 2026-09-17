@@ -1,0 +1,70 @@
+{
+  "_README": [
+    "L2 端到端评测任务集（阶段 0 任务 0.4）。",
+    "目的是回答一个 L1 回答不了的问题：agent 拿着这套检索工具，能不能把活干成？",
+    "每条任务的 mustCite 是'答案必须有代码依据'的锚点，已用 grep/Resolve-SymbolIds 核对存在。",
+    "评分协议见 docs/l2-eval-protocol.md（四维：忠实度 / 相关性 / 上下文召回 / 上下文精确）。",
+    "注意：这些是真实 modder 会问的问题，措辞要自然，不要故意写成符号名（那是 L1 的 exact-symbol 类）。"
+  ],
+  "version": 1,
+  "createdAt": "2026-09-17",
+  "dimensions": ["faithfulness", "answerRelevancy", "contextRecall", "contextPrecision"],
+  "tasks": [
+    {
+      "id": "l2-01",
+      "category": "vanilla-mechanic",
+      "question": "CompExplosive 的爆炸伤害到底是怎么算出来的？伤害会不会随距离衰减？",
+      "why": "需要先找到组件类，再追到真正的爆炸实现，并读清 damageFalloff 相关逻辑；单靠一次搜索不够",
+      "mustCite": ["RimWorld.CompExplosive", "Verse.Explosion"]
+    },
+    {
+      "id": "l2-02",
+      "category": "vanilla-mechanic",
+      "question": "殖民者的饥饿值是怎么随时间掉的？营养不良会怎么影响它？",
+      "why": "需要找到 Need_Food 并读懂 NeedInterval 与 MetabolismFactor",
+      "mustCite": ["RimWorld.Need_Food"]
+    },
+    {
+      "id": "l2-03",
+      "category": "modding-howto",
+      "question": "我在 ThingDef 的 comps 里加了一个自定义 ThingComp，游戏是怎么把它实例化并挂到 Thing 上的？",
+      "why": "这是继承 + 初始化流程问题：要找到基类、ThingWithComps 的初始化、以及 Def 到实例的路径",
+      "mustCite": ["Verse.ThingComp", "Verse.ThingWithComps"]
+    },
+    {
+      "id": "l2-04",
+      "category": "vanilla-mechanic",
+      "question": "电力是怎么在相连的建筑之间分配的？谁负责维护这张电网？",
+      "why": "需要区分『组件』和『电网本体』两个概念，并说明它们的关系",
+      "mustCite": ["RimWorld.PowerNet", "RimWorld.CompPowerTrader"]
+    },
+    {
+      "id": "l2-05",
+      "category": "vanilla-mechanic",
+      "question": "把物品搬进存储区的那个 job 是怎么实现的？放置失败会怎么办？",
+      "why": "要读 JobDriver 的 toil 序列，可能还要看存储工具类",
+      "mustCite": ["Verse.AI.JobDriver_HaulToCell"]
+    },
+    {
+      "id": "l2-06",
+      "category": "mod-specific",
+      "question": "Vehicle Framework 里控制载具动画的参数是用什么 Def 定义的？给我 Def 名和它的 C# 类型。",
+      "why": "这是中文/品牌名与代码标识符不对齐的典型：查询说 Vehicle Framework，代码里是 SmashTools.Animations",
+      "mustCite": ["AnimationParameterDef", "VF_VehicleIsMoving"]
+    },
+    {
+      "id": "l2-07",
+      "category": "mod-specific",
+      "question": "Humanoid Alien Races 框架里描述一个种族设置的那个类是哪个？",
+      "why": "查询用 mod 显示名，代码里是 AlienRace 命名空间",
+      "mustCite": ["AlienRace.AlienRaceSettings"]
+    },
+    {
+      "id": "l2-08",
+      "category": "mod-compat",
+      "question": "RimTalk 和 rjw 是怎么联动的？RimTalk 里有没有直接引用 rjw 的东西？",
+      "why": "考察字面搜索能力（这个常量名不是自然语言能猜到的），也考察会不会把 rjw 主库内容混进来",
+      "mustCite": ["RimTalk.Service.SleepDialogueTracker"]
+    }
+  ]
+}
