@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -117,6 +117,10 @@ try
     ));
     
     server.RegisterTool(new GetItemTool(
+        config.IndexRoot
+    ));
+
+    server.RegisterTool(new GrepTool(
         config.IndexRoot
     ));
 

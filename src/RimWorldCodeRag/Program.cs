@@ -7,6 +7,7 @@ using RimWorldCodeRag.Common;
 using RimWorldCodeRag.Evaluation;
 using RimWorldCodeRag.Indexer;
 using RimWorldCodeRag.Retrieval;
+using RimWorldCodeRag.Search;
 using RimWorldCodeRag.Telemetry;
 
 public static class Program
@@ -41,6 +42,8 @@ public static class Program
                 return RunBuildModCatalog(tail);
             case "telemetry":
                 return ToolCallSummary.Run(tail);
+            case "grep":
+                return RunGrep(tail);
             default:
                 Console.Error.WriteLine($"Unknown command '{command}'.");
                 PrintUsage();
@@ -369,6 +372,68 @@ public static class Program
         }
     }
 
+    /// <summary>
+    /// Literal / regex scan over the source tree (task 3.1). Exposed on the CLI as well as through
+    /// MCP so the behaviour is testable without a running server.
+    /// </summary>
+    private static int RunGrep(string[] args)
+    {
+        var options = ParseOptions(args);
+        if (!options.TryGetValue("pattern", out var pattern) || string.IsNullOrWhiteSpace(pattern))
+        {
+            Console.Error.WriteLine("Missing required option --pattern <text|regex>.");
+            return 1;
+        }
+
+        var indexRoot = PathExclusionFilter.ResolveIndexRoot(GetOrDefault(options, "vec", Path.Combine("index", "vec")));
+        var root = options.TryGetValue("root", out var explicitRoot)
+            ? explicitRoot
+            : SourceRootHint.Resolve(indexRoot);
+
+        var grepOptions = new GrepOptions
+        {
+            SourceRoot = Path.GetFullPath(root),
+            Pattern = pattern,
+            IsRegex = options.ContainsKey("regex"),
+            IgnoreCase = !options.ContainsKey("case-sensitive"),
+            Glob = options.TryGetValue("glob", out var glob) ? glob : null,
+            PathFilter = options.TryGetValue("path", out var pathFilter) ? pathFilter : null,
+            MaxResults = int.TryParse(GetOrDefault(options, "max", "50"), out var max) ? Math.Max(1, max) : 50,
+            ContextLines = int.TryParse(GetOrDefault(options, "context", "2"), out var context) ? Math.Max(0, context) : 2,
+            IncludeTranslations = options.ContainsKey("include-translations"),
+            Exclusion = PathExclusionFilter.Load(indexRoot)
+        };
+
+        var result = GrepSearcher.Search(grepOptions);
+        if (result.Error is not null)
+        {
+            Console.Error.WriteLine($"grep failed: {result.Error}");
+            return 1;
+        }
+
+        Console.WriteLine(
+            $"[grep] '{pattern}' -> {result.Matches.Count} match(es) in {result.FilesMatched} file(s); " +
+            $"{result.FilesScanned} scanned in {result.ElapsedMs:F0} ms{(result.Truncated ? " (truncated)" : string.Empty)}");
+
+        foreach (var match in result.Matches)
+        {
+            foreach (var line in match.Before)
+            {
+                Console.WriteLine($"        {line}");
+            }
+
+            Console.WriteLine($"{match.Path}:{match.Line}:{match.Column}: {match.Text}");
+            foreach (var line in match.After)
+            {
+                Console.WriteLine($"        {line}");
+            }
+
+            Console.WriteLine();
+        }
+
+        return 0;
+    }
+
     private static int RunGetUses(string[] args)
     {
         var options = ParseOptions(args);
@@ -569,6 +634,7 @@ public static class Program
         Console.WriteLine("  RimWorldCodeRag pack-vectors [--vec <dir>] [--overwrite]");
         Console.WriteLine("  RimWorldCodeRag build-mod-catalog --root <path> [--vec <dir>] [--threads <n>]");
         Console.WriteLine("  RimWorldCodeRag telemetry --path <mcp-tool-calls.jsonl> [--since <hours>]");
+        Console.WriteLine("  RimWorldCodeRag grep --pattern <text|regex> [--regex] [--glob <glob>] [--path <substring>] [--max <n>] [--context <n>] [--root <path>] [--case-sensitive] [--include-translations]");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  index             Build search index from source code and XML Defs");
@@ -580,6 +646,7 @@ public static class Program
         Console.WriteLine("  pack-vectors      Repack a legacy vectors.jsonl into vectors.bin + vectors.meta.jsonl (no re-embedding)");
         Console.WriteLine("  build-mod-catalog Rebuild only index/mods.json (mod alias/vocabulary table) from a source snapshot");
         Console.WriteLine("  telemetry         Summarise the MCP tool-call JSONL (latency P50/P95, 0-result rate, search→get_item conversion)");
+        Console.WriteLine("  grep              Literal / regex text scan over the source tree (exact strings, zero GPU)");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --kind <type>     Filter by type: 'csharp'/'cs' (C# only), 'xml'/'def' (XML Defs only), or omit for all");

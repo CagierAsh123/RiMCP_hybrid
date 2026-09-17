@@ -211,7 +211,7 @@
 
 | # | 任务 | 要点 | 来源 |
 |---|---|---|---|
-| 3.1 | **`grep` 工具** | ripgrep over `_SourceCode`，返回 `文件:行 + 上下文`；零 GPU 成本；对字面查询强于向量 | RAGFlow `grep_sed_narrow` |
+| 3.1 | **`grep` 工具** ✅ | ripgrep over `_SourceCode`，返回 `文件:行 + 上下文`；零 GPU 成本；对字面查询强于向量 | RAGFlow `grep_sed_narrow` |
 | 3.2 | **MCP 现代化** | 官方 `ModelContextProtocol` 2.2.0 SDK 替换手写 JSON-RPC；加 resources（索引统计）、prompts（预置工作流）、tool annotations、SSE/HTTP 传输 | 官方 SDK |
 | 3.3 | **索引自动化** | 接上死代码 `Indexer/Watcher.cs` 或加 `index --watch`；与 `Sync-VanillaSource.ps1` / `Refresh-ModSource.ps1` 串成链 | 现状缺口 |
 | 3.4 | **图语义化重建** | `Indexer/GraphBuilder.cs` 从 `CSharpSyntaxTree.ParseText(chunk.Text)` 升级为 `SemanticModel`（加载游戏 `Managed\*.dll` 做真编译）→ 补静态/反射/别名引用 | 评估 §2.5 |
@@ -627,3 +627,42 @@ RimWorldCodeRag telemetry --path src\RimWorldCodeRag\index\logs\mcp-tool-calls.j
 | **L3 `telemetry`** | 真实使用中**到底怎么样**（延迟/失败/使用模式） | 持续 |
 
 L3 的另一半价值：它记录的 0 结果查询是**真实分布**，比人工拟的评测集更贴近实战。
+
+---
+
+## 14. 任务 3.1 `grep` 工具完成（2026-09-17）
+
+### 14.1 为什么向量索引之外还需要一个字面搜索
+
+嵌入擅长**语义**、不擅长**精确字符串**。"`rjw.JobDriver_Sex` 在哪里被引用了"、"哪些 XML 设置了
+`<workerClass>`"、"这个方法上有几个 `[HarmonyPatch]`"——这些用一次文本扫描既便宜又精确，
+走余弦相似度则不可靠。所以 `grep` 与 `rough_search` 是**互补**关系，不是替代。
+
+### 14.2 实现
+
+- **纯托管代码，不依赖 ripgrep**：`Search/GrepSearcher.cs`（引擎）+ `Tools/GrepTool.cs`（MCP）+ CLI `grep`（便于不起服务就测）
+- **与索引共用同一份排除规则**（`PathExclusionFilter`）：一个会返回已排除 mod 的 grep 会和索引自相矛盾
+  —— 实测 `grep 'rjw.JobDriver_Sex'` 只命中 RimTalk，**不返回 `_SourceCode\rjw\` 下的任何文件**
+- **源码根自动发现**：索引器把源码根写进 `index\meta\source-root.txt`，工具读取它
+  （可用 `RIMWORLD_SOURCE_ROOT` 覆盖），所以工具配置不会和它所属的索引漂移
+- 默认跳过 `Languages/` 与 `DefInjected/`（纯翻译，数量盖过源码），但**保留 `About/` 与 `Patches/`**
+  （mod 元数据与 PatchOperation 是真答案）；`--include-translations` 可放开
+
+### 14.3 实测
+
+| 场景 | 结果 |
+|---|---|
+| 字面 `rjw.JobDriver_Sex` | 2 处，均在 RimTalk；**无 rjw\ 路径** |
+| 正则 `HarmonyPatch\(typeof` + `*.cs` | 正确行号列号 |
+| 限定 `--path 'Vehicle Framework'` | **35 ms**（优化前 1,444 ms，**41×**）——路径命中目录时只遍历该子树 |
+| `--glob '*.xml'` 搜 `VF_VehicleIsMoving` | 命中 `Parameters_General.xml`（正是 bl04 的期望 def） |
+| 全树未命中 | 22,251 文件 / **2.3 s** |
+
+### 14.4 工具分工（写进工具描述，让 agent 自己选）
+
+| 诉求 | 该用哪个 |
+|---|---|
+| 知道确切标识符/字符串/属性，要**全部**出现处 | `grep` |
+| 用自然语言描述机制、不知道标识符 | `rough_search` |
+| 要读某个符号的完整源码 | `get_item` |
+| 要继承/引用关系 | `get_uses` / `get_used_by` |

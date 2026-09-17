@@ -118,8 +118,26 @@ public sealed class IndexingPipeline
         graphBuilder.BuildGraph(fullChunks);
 
         BuildModCatalog(fullChunks);
+        WriteSourceRootHint();
 
         _metadataStore.Save();
+    }
+
+    /// <summary>
+    /// Record the source root next to the index so tools that read the source tree directly
+    /// (the <c>grep</c> tool) do not need their own configuration.
+    /// </summary>
+    private void WriteSourceRootHint()
+    {
+        try
+        {
+            Directory.CreateDirectory(_config.MetadataPath);
+            File.WriteAllText(Path.Combine(_config.MetadataPath, SourceRootHint.FileName), _config.SourceRoot);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[index] could not record the source root: {ex.Message}");
+        }
     }
 
     /// <summary>
