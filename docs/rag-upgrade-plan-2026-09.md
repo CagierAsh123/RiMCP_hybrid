@@ -768,3 +768,75 @@ vanilla XML Def、**mod XML Def**（验证排除规则没误伤 mod 内容）。
 ### 16.3 `bench-retrieval.ps1` 增加 `-VecDir` / `-IndexDir` / `-Exe`
 
 换模型期间索引正在被重写、或要回跑旧向量（`vec.e5`）时，不必等索引写完也能评测。
+
+---
+
+## 17. 换端口运行手册（重嵌入完成后照抄，别临场即兴）
+
+### 17.1 一个必须先知道的进程事实
+
+本机 python 是 **venv shim + 基础解释器** 两个进程：
+
+```
+pid=1140   .venv\Scripts\python.exe        embedding_server.py ... --port 5000   <- shim（父）
+pid=15548  A:\python\Python-3.10\python.exe embedding_server.py ... --port 5000  <- 真正持有端口（子）
+```
+
+- **venv 的 `python.exe` 是个 launcher**，它会 re-exec 基础解释器（`A:\python\Python-3.10\python.exe`），
+  靠 `pyvenv.cfg` 让 `sys.prefix` 指向 venv，所以 **venv 里的包仍然可见**
+- 判断"谁占着端口"要看 `Get-NetTCPConnection` 的 `OwningProcess`（是子进程）；
+  **停服务要杀父（shim）**，子进程随之退出
+
+### 17.2 致命的操作顺序陷阱
+
+**Qwen3 服务必须用 venv 的 python 启动**（`src\RimWorldCodeRag\.venv\Scripts\python.exe`）。
+`A:\python\Python-3.10\python.exe` 是基础解释器，**它看不到 venv 里的 `sentence-transformers`** →
+服务会**静默退回** legacy transformers 后端 → 用 mean pooling、不加 query instruction →
+**质量静默掉一大截，而且不报错**。
+
+险的是 `A:\python` 那个解释器**也有 torch**，所以它不会崩，只会悄悄变差。
+这就是为什么 `smoke_embedding_server.py` 里那条断言（**同一段文本作为 query 和 passage 的余弦必须不等于 1**）
+必须存在 —— 它是这个陷阱的唯一警报。
+
+### 17.3 命令
+
+```powershell
+# 0) 重嵌入结束后，Release 的 dll 解锁，先重新构建（脚本默认用它）
+dotnet build src\RimWorldCodeRag\RimWorldCodeRag.csproj -c Release
+dotnet build src\RimWorldCodeRag.McpServer\RimWorldCodeRag.McpServer.csproj -c Release
+
+# 1) 验收（维度/dtype/prompt + vectors.bin 头与长度 + 冒烟 + 与 e5 基线对比）
+.\tools\validate-model-swap.ps1 -EmbeddingServer http://127.0.0.1:5001
+
+# 2) 把 5000 从 e5 换成 Qwen3（杀 shim 父进程，子进程随之退出）
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Where-Object { $_.CommandLine -like '*embedding_server.py*' -and $_.CommandLine -like '*--port 5000*' } |
+  ForEach-Object { taskkill /F /PID $_.ProcessId }
+# 确认 5000 已释放
+Get-NetTCPConnection -LocalPort 5000 -State Listen -ErrorAction SilentlyContinue
+
+# 3) 用 venv 的 python 在 5000 起 Qwen3（后台任务，日志可读）
+$env:HF_HUB_OFFLINE='1'; $env:TRANSFORMERS_OFFLINE='1'
+& .\src\RimWorldCodeRag\.venv\Scripts\python.exe .\src\RimWorldCodeRag\python\embedding_server.py `
+    --model .\src\RimWorldCodeRag\models\Qwen3-Embedding-0.6B `
+    --port 5000 --max-length 2048 --st-batch-size 16 --st-token-budget 8192 --dtype auto
+
+# 4) 必须核对：dim=1024 / backend=sentence-transformers / dtype=bfloat16 / prompts 含 query
+Invoke-RestMethod http://127.0.0.1:5000/health
+
+# 5) 重启 MCP（DSH 会自动重拉）；它会同时拾取 Qwen3 索引 + §15 加固 + grep 工具
+Get-CimInstance Win32_Process -Filter "Name='RimWorldCodeRag.McpServer.exe'" |
+  ForEach-Object { taskkill /F /PID $_.ProcessId }
+
+# 6) 复测 + 对比（重点看 bilingual-mod 与 natural-language）
+.\tools\bench-retrieval.ps1 -Label 'qwen3-0.6b / fused 0.3-0.7' -Out tests\baseline-qwen3.json `
+    -Compare tests\baseline-e5.json -Hybrid -Weights '0.3,0.7' -Diagnose
+
+# 7) 1 分钟冒烟（改完任何东西都该跑）
+.\tools\smoke-gold.ps1
+```
+
+### 17.4 回滚
+
+`index\vec.e5`（e5 向量）与 `index\vec.e5bak`（完整备份）都还在；把 5000 端口换回 e5 服务、
+`index\vec` 换回 `vec.e5` 即可。`index.bak\` 是改动前（含 Develop/rjw）的完整索引。
