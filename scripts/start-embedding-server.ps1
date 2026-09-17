@@ -16,15 +16,27 @@
 .PARAMETER Model
     Path to the model directory (default: src\RimWorldCodeRag\models\e5-base-v2)
 
+.PARAMETER MaxLength
+    Max sequence length; 0 = use the model's own limit (Qwen3-Embedding: 32768).
+    e5-base-v2 is capped at 512 by its own config, so 0 is safe for both.
+
+.PARAMETER Backend
+    auto (default) | sentence-transformers | transformers.
+    Qwen3-Embedding needs last-token pooling + a query-side instruction, which only the
+    sentence-transformers backend reads from the model repo.
+
 .EXAMPLE
     .\start-embedding-server.ps1
-    .\start-embedding-server.ps1 -Port 5001
+    .\start-embedding-server.ps1 -Model ..\RimWorldCodeRag\models\Qwen3-Embedding-0.6B
 #>
 
 param(
     [int]$Port = 5000,
     [string]$ServerHost = "127.0.0.1",
-    [string]$Model = ""
+    [string]$Model = "",
+    [int]$MaxLength = 0,
+    [ValidateSet("auto", "sentence-transformers", "transformers")]
+    [string]$Backend = "auto"
 )
 
 Set-StrictMode -Version Latest

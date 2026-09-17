@@ -38,6 +38,34 @@ public sealed class RoughSearchConfig
     /// </summary>
     public FusionMode Fusion { get; init; } = FusionMode.WeightedSum;
 
+    /// <summary>
+    /// Expand a query that names a mod with that mod's identifiers (task 1.6).
+    ///
+    /// <para>
+    /// Measured: this <b>does not help</b> with lexical candidates. BM25 combines terms with OR, so
+    /// appending ~30 terms dilutes the original terms' share of the score and the target chunk's rank
+    /// drops (absent items 12 -> 13, MRR 0.4042 -> 0.4021). Kept as an off-by-default experiment;
+    /// prefer <see cref="ModPathBoost"/>.
+    /// </para>
+    /// </summary>
+    public ModExpansionMode ModExpansion { get; init; } = ModExpansionMode.None;
+
+    /// <summary>
+    /// Bonus added to the semantic score of candidates whose path lies inside a mod named in the
+    /// query (metadata filtering without a second scan). This is the variant that helps:
+    /// <c>Blend(framework, neutral)</c>.
+    /// </summary>
+    public double ModPathBoost { get; init; } = 0.0;
+
+    /// <summary>Maximum number of mods detected in one query.</summary>
+    public int MaxModMatches { get; init; } = 2;
+
+    /// <summary>Cap on the number of expansion terms appended to a query.</summary>
+    public int MaxExpansionTerms { get; init; } = 24;
+
+    /// <summary>Mod alias table; when null it is loaded from the index root.</summary>
+    public ModCatalog? ModCatalog { get; init; }
+
     public string? Kind { get; init; }
 
     public string? EmbeddingServerUrl { get; init; }

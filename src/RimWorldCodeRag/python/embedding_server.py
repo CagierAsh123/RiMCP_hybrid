@@ -1,140 +1,311 @@
 #!/usr/bin/env python3
-"""Persistent embedding server to eliminate cold-start overhead."""
+"""Persistent embedding server.
+
+Two backends, chosen automatically from the model directory:
+
+* **sentence-transformers** (preferred). The model repo ships its own ST config
+  (``modules.json``, ``1_Pooling/config.json``, ``config_sentence_transformers.json``),
+  so pooling, normalization and the query instruction all come *from the model* rather than
+  being hard-coded here. This matters for Qwen3-Embedding: it needs **last-token** pooling and
+  an instruction prefix on the **query side only** — reusing e5's ``query:`` / ``passage:``
+  prefixes with mean pooling silently wrecks it.
+
+* **transformers** (legacy fallback). e5-style mean pooling plus the ``query:`` / ``passage:``
+  prefixes, so an index built with e5 stays searchable.
+
+The HTTP contract is unchanged: ``POST /embed {"mode": "query"|"passage", "items": [...]}``.
+"""
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
-import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-import torch
-from flask import Flask, request, jsonify
-from transformers import AutoModel, AutoTokenizer
+from flask import Flask, jsonify, request
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='[embedding-server] %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="[embedding-server] %(message)s")
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Global state (loaded once at startup)
-model = None
-tokenizer = None
-device = None
-max_length = 512
+# Loaded once at startup.
+state: Dict[str, Any] = {
+    "backend": None,        # "sentence-transformers" | "transformers"
+    "model": None,          # SentenceTransformer or AutoModel
+    "tokenizer": None,      # only for the legacy backend
+    "prompts": {},          # ST prompt templates, e.g. {"query": "Instruct: ...\nQuery:"}
+    "device": None,
+    "dim": 0,
+    "max_length": 0,
+    "st_batch_size": 8,
+    "st_token_budget": 12000,
+    "dtype": None,
+    "model_path": None,
+}
 
 
-def _prepare_text(item: Dict[str, Any], mode: str = "passage") -> str:
-    """Prepare text for embedding with appropriate prefix."""
-    text = item.get("text") or ""
-    if not text.strip():
-        text = item.get("preview") or ""
-    text = text.strip()
-    
-    # Prefix for e5 family embeddings
-    if text:
-        return f"{mode}: {text}"
-    return f"{mode}: "
+def _text_of(item: Dict[str, Any]) -> str:
+    text = (item.get("text") or "").strip()
+    if not text:
+        text = (item.get("preview") or "").strip()
+    return text
 
 
-def _encode_batch(items: List[Dict[str, Any]], mode: str = "passage") -> List[List[float]]:
-    """Encode a batch of items into embeddings."""
+def _prepare_legacy(item: Dict[str, Any], mode: str) -> str:
+    """e5 convention: every input carries a `query:` / `passage:` prefix."""
+    text = _text_of(item)
+    return f"{mode}: {text}" if text else f"{mode}: "
+
+
+def _budgeted_batches(texts: List[str], max_batch: int, token_budget: int):
+    """Split texts into forward-pass batches bounded by *both* count and total length.
+
+    Padding is per batch, so a batch's activation memory scales with
+    ``len(batch) x max_length_in_batch`` (and attention with an extra factor of the length).
+    A fixed batch size therefore OOMs as soon as one batch happens to contain long XML defs.
+    Bounding the token total keeps memory flat regardless of the length distribution, while
+    preserving input order.
+    """
+    batch: List[str] = []
+    batch_max = 0
+    for text in texts:
+        estimate = max(1, len(text) // 3)  # ~3 chars per token for code/XML
+        if batch and (len(batch) >= max_batch or max(batch_max, estimate) * (len(batch) + 1) > token_budget):
+            yield batch
+            batch, batch_max = [], 0
+        batch.append(text)
+        batch_max = max(batch_max, estimate)
+    if batch:
+        yield batch
+
+
+def _encode_batch(items: List[Dict[str, Any]], mode: str) -> List[List[float]]:
     if not items:
         return []
-    
-    texts = [_prepare_text(item, mode) for item in items]
-    
+
+    backend = state["backend"]
+
+    if backend == "sentence-transformers":
+        model = state["model"]
+        texts = [_text_of(item) for item in items]
+
+        # Only apply the instruction when the model actually ships one AND we are embedding a
+        # query. Documents must stay prompt-free (the Qwen3 config sets `document: ""`).
+        prompt_name: Optional[str] = None
+        if mode == "query" and "query" in state["prompts"]:
+            prompt_name = "query"
+
+        vectors: List[List[float]] = []
+        for batch in _budgeted_batches(texts, state["st_batch_size"], state["st_token_budget"]):
+            encoded = model.encode(
+                batch,
+                prompt_name=prompt_name,
+                batch_size=len(batch),
+                normalize_embeddings=True,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+            )
+            vectors.extend(encoded.tolist())
+        return vectors
+
+    # Legacy transformers path.
+    import torch
+
+    tokenizer = state["tokenizer"]
+    model = state["model"]
+    device = state["device"]
+
+    texts = [_prepare_legacy(item, mode) for item in items]
     encoded = tokenizer(
         texts,
         padding=True,
         truncation=True,
-        max_length=max_length,
+        max_length=state["max_length"],
         return_tensors="pt",
     )
     encoded = {key: value.to(device) for key, value in encoded.items()}
-    
+
     with torch.no_grad():
         outputs = model(**encoded)
-        # Mean pool last hidden state
         embeddings = outputs.last_hidden_state.mean(dim=1)
-    
+
     embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
     return embeddings.cpu().tolist()
 
 
-@app.route('/health', methods=['GET'])
+@app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint."""
-    return jsonify({
-        "status": "healthy",
-        "device": str(device),
-        "model_loaded": model is not None
-    })
+    return jsonify(
+        {
+            "status": "healthy",
+            "device": str(state["device"]),
+            "model_loaded": state["model"] is not None,
+            "backend": state["backend"],
+            "model_path": state["model_path"],
+            "dim": state["dim"],
+            "max_length": state["max_length"],
+            "dtype": str(state["dtype"]),
+            "prompts": sorted(state["prompts"].keys()),
+        }
+    )
 
 
-@app.route('/embed', methods=['POST'])
+@app.route("/embed", methods=["POST"])
 def embed():
-    """Embed endpoint that accepts JSON payload and returns embeddings."""
     try:
-        payload = request.get_json()
+        payload = request.get_json(silent=True)
         if not payload:
             return jsonify({"error": "No JSON payload"}), 400
-        
+
         items = payload.get("items", [])
         if not isinstance(items, list):
             return jsonify({"error": "items must be a list"}), 400
-        
+
         mode = payload.get("mode", "passage")
         if mode not in ("passage", "query"):
             return jsonify({"error": f"Invalid mode '{mode}'"}), 400
-        
+
         if not items:
             return jsonify({"vectors": []})
-        
-        # Process in batches to avoid OOM
-        batch_size = 128
-        all_vectors = []
-        
+
+        # The caller already batches (indexing uses ~1024 items per request); chunk it anyway so a
+        # long request cannot blow up VRAM.
+        batch_size = 256
+        all_vectors: List[List[float]] = []
         for i in range(0, len(items), batch_size):
-            batch = items[i:i + batch_size]
-            vectors = _encode_batch(batch, mode)
-            all_vectors.extend(vectors)
-        
-        return jsonify({"vectors": all_vectors})
-    
-    except Exception as e:
-        logger.error(f"Error processing request: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+            all_vectors.extend(_encode_batch(items[i : i + batch_size], mode))
+
+        return jsonify({"vectors": all_vectors, "dim": state["dim"], "mode": mode})
+
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a 500
+        logger.error("Error processing request: %s", exc, exc_info=True)
+        return jsonify({"error": str(exc)}), 500
+
+
+def _resolve_dtype(name: str, device: str):
+    """Pick the compute dtype.
+
+    Loading Qwen3-Embedding without an explicit dtype gives **float32** (2.4 GB of weights for a
+    0.6B model) even though the checkpoint is bfloat16 — measured on an 8 GB laptop GPU that
+    filled VRAM, made batch 16 *slower* than batch 8, and crashed at batch 32. bfloat16 halves
+    both weights and activations and is the model's native precision.
+    """
+    import torch
+
+    if name == "float32":
+        return torch.float32
+    if name == "float16":
+        return torch.float16
+    if name == "bfloat16":
+        return torch.bfloat16
+
+    # auto
+    if device == "cuda":
+        return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    return torch.float32
+
+
+def _load_sentence_transformers(model_path: str, device: str, max_length: int, dtype_name: str) -> bool:
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError:
+        logger.warning("sentence-transformers is not installed; using the legacy transformers backend.")
+        return False
+
+    dtype = _resolve_dtype(dtype_name, device)
+    try:
+        model = SentenceTransformer(
+            model_path,
+            device=device,
+            trust_remote_code=True,
+            model_kwargs={"torch_dtype": dtype},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not load '%s' as a SentenceTransformer (%s); falling back.", model_path, exc)
+        return False
+
+    prompts = dict(getattr(model, "prompts", None) or {})
+    if max_length > 0:
+        model.max_seq_length = max_length
+
+    state.update(
+        backend="sentence-transformers",
+        model=model,
+        tokenizer=None,
+        prompts=prompts,
+        dim=model.get_sentence_embedding_dimension(),
+        max_length=model.max_seq_length,
+        dtype=dtype,
+    )
+    logger.info("sentence-transformers backend: dim=%s max_seq_length=%s dtype=%s prompts=%s",
+                state["dim"], state["max_length"], dtype, sorted(prompts.keys()))
+    return True
+
+
+def _load_transformers(model_path: str, device: str, max_length: int) -> None:
+    import torch
+    from transformers import AutoModel, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    model = AutoModel.from_pretrained(model_path)
+    dev = torch.device(device)
+    model.to(dev)
+    model.eval()
+
+    hidden = getattr(model.config, "hidden_size", 0)
+    state.update(
+        backend="transformers",
+        model=model,
+        tokenizer=tokenizer,
+        prompts={},
+        device=dev,
+        dim=hidden,
+        max_length=max_length,
+    )
+    logger.info("legacy transformers backend: dim=%s max_length=%s (e5-style prefixes)",
+                state["dim"], state["max_length"])
 
 
 def main() -> None:
-    global model, tokenizer, device, max_length
-    
     parser = argparse.ArgumentParser(description="Embedding server")
     parser.add_argument("--model", required=True, help="Model directory")
-    parser.add_argument("--max-length", type=int, default=512, help="Max sequence length")
-    parser.add_argument("--host", default="127.0.0.1", help="Server host")
-    parser.add_argument("--port", type=int, default=5000, help="Server port")
+    parser.add_argument("--max-length", type=int, default=0,
+                        help="Max sequence length; 0 = use the model's own limit")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=5000)
+    parser.add_argument("--backend", choices=["auto", "sentence-transformers", "transformers"],
+                        default="auto")
+    parser.add_argument("--st-batch-size", type=int, default=8,
+                        help="Forward-pass batch size for the sentence-transformers backend. "
+                             "Must stay small: memory scales with batch x seq_len^2.")
+    parser.add_argument("--st-token-budget", type=int, default=12000,
+                        help="Upper bound on batch_size x longest_sequence for one forward pass. "
+                             "Keeps VRAM flat when long XML defs land in the same batch.")
+    parser.add_argument("--dtype", choices=["auto", "float32", "float16", "bfloat16"], default="auto",
+                        help="Compute dtype. 'auto' picks bfloat16 on a GPU that supports it; "
+                             "loading without this gives float32 and roughly halves throughput.")
     args = parser.parse_args()
-    
-    max_length = args.max_length
-    
-    logger.info(f"Loading model from {args.model}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model)
-    model = AutoModel.from_pretrained(args.model)
-    
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model.eval()
-    
-    logger.info(f"Model loaded on device: {device}")
-    logger.info(f"Starting server on {args.host}:{args.port}")
-    
+
+    state["st_batch_size"] = max(1, args.st_batch_size)
+    state["st_token_budget"] = max(256, args.st_token_budget)
+
+    import torch
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    state["device"] = device
+    state["model_path"] = args.model
+
+    logger.info("Loading model from %s", args.model)
+    loaded = False
+    if args.backend in ("auto", "sentence-transformers"):
+        loaded = _load_sentence_transformers(args.model, device, args.max_length, args.dtype)
+    if not loaded:
+        if args.backend == "sentence-transformers":
+            raise SystemExit("--backend sentence-transformers requested but loading failed")
+        _load_transformers(args.model, device, args.max_length or 512)
+
+    logger.info("Model ready on %s; serving on %s:%s", device, args.host, args.port)
     app.run(host=args.host, port=args.port, threaded=True)
 
 

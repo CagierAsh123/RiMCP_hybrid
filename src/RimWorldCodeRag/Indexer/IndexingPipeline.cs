@@ -117,7 +117,21 @@ public sealed class IndexingPipeline
         var graphBuilder = new GraphBuilder(_config.GraphPath, _config.MaxDegreeOfParallelism);
         graphBuilder.BuildGraph(fullChunks);
 
+        BuildModCatalog(fullChunks);
+
         _metadataStore.Save();
+    }
+
+    /// <summary>
+    /// Derive the mod alias/vocabulary table from the chunks themselves (exact, no re-parsing) plus
+    /// the mod directory names. See <see cref="ModCatalog"/> for why this is needed.
+    /// </summary>
+    private void BuildModCatalog(IReadOnlyList<ChunkRecord> chunks)
+    {
+        var entries = ModCatalogBuilder.Build(_config.SourceRoot, chunks);
+        var indexRoot = PathExclusionFilter.ResolveIndexRoot(_config.VectorIndexPath);
+        ModCatalog.Save(indexRoot, entries);
+        Console.WriteLine($"[index] Mod catalog: {entries.Count} mods -> {Path.Combine(indexRoot, ModCatalog.FileName)}");
     }
 
     private async Task GenerateEmbeddingsAsync(IReadOnlyList<ChunkRecord> chunks, IEmbeddingGenerator generator, string directory, CancellationToken cancellationToken)

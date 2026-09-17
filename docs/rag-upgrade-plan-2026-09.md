@@ -472,3 +472,101 @@ holdout 与总体几乎一致 → 评测集分布均衡，**调参时用 30 条�
 ③ 4.x 观察：融合把长尾挤出 top-20 → 考虑重排器（只在评测集证明有增益时才默认开）
 ④ L2/L3：子代理端到端 + MCP 调用日志
 ```
+
+---
+
+## 12. 任务 1.6（mod 词表）：两个负结果 + 换模型准备（2026-09-17）
+
+### 12.1 动机
+
+§11.3 的诊断显示：45 个期望项里 **12 个两条腿都没捞到**，其中 **6 个是中文 mod 类**。
+根因是**词表不匹配**——查询用 mod 显示名（"Humanoid Alien Races"），代码里是 `AlienRace` / `HAR_`。
+直觉的解法是"把 mod 的标识符追加到查询里"。
+
+### 12.2 做法：`index/mods.json` 别名/词表
+
+新增 `Common/ModCatalog.cs` + `Indexer/ModCatalogBuilder.cs` + `build-mod-catalog` 子命令（10 秒，不用重建索引）。
+每个 mod 记录：**别名**（目录名按 `中文名（English Name）` 拆开 + 该 mod 最可信的单段命名空间）、
+**命名空间**、**DefType**、**defName 前缀**。
+
+两个必须的过滤（第一版都踩了）：
+- **通用命名空间必须剔除**：`Verse` / `RimWorld` / `System.*`（按"出现在 ≥25% 的 mod 里"自动判定 doc frequency），
+  否则给 NewRatkinPlus 扩展出 `Verse RimWorld`，把原版内容全拖进来
+- **前缀的分母是 XML chunk 数，不是总 chunk 数**：Vehicle Framework 有 8,773 个 chunk（多数是 C#），
+  用总数当分母会把 `VF_` 直接滤掉（第一版 `defPrefixes` 全空就是这个 bug）
+- 别名只取**最可信的一个命名空间**，因为反编译出的 Harmony patch 会住在 `PatchOperationTryAdd`
+  这种"命名空间"里，当别名会误命中
+
+### 12.3 结果：两条路都不work，都不进默认
+
+| 方案 | Recall@10 | MRR | 两腿都没捞到 |
+|---|---|---|---|
+| 基线（无 mod 处理） | 0.5000 | 0.4042 | 12 |
+| 词法扩展 `--mod-expand lexical` | 0.5000 | 0.4042 | **13** |
+| 两腿都扩展 `--mod-expand both` | 0.5000 | **0.4021** | **13** |
+| 语义路路径加权 `--mod-boost 0.1` | 0.5000 | 0.4042 | 12 |
+| `--mod-boost 0.2` | 0.5000 | 0.4042 | 12 |
+| `--mod-boost 0.35` | 0.5000 | 0.4042 | 12 |
+
+**为什么词法扩展反而更差**：BM25 用 **OR** 组合词项。追加 ~30 个词项后，目标 chunk 只命中其中一两个，
+它占的分值比例被**稀释**了，排名反而掉。经典 query-expansion 陷阱。
+
+**为什么路径加权"看起来在工作但指标不动"**：逐条 diff 证明它确实改变了排序
+（bl06 从 NewRatkin 的补丁变成 HAR 自己的 def，bl04 结果全变成 Vehicle Framework），
+但它是**均匀**加成——不改变 mod 内部的相对顺序，所以目标 chunk 在 mod 内排在 300 名的话，
+加成后仍在 300 名。改动的是"展示哪个 mod 的东西"，不是"找没找到正确的东西"。
+
+> **结论**：查询侧的 mod 技巧都拿不到召回增益，两者默认关闭
+> （`ModExpansion = None`、`ModPathBoost = 0.0`）。机制和词表保留（`mods.json` 对人工排查有用），
+> 但不再往这条路上加码。剩余缺口是**语义/多语言**问题 → 交给模型换代（§13）。
+
+### 12.4 换 Qwen3 的准备：三个非显然的坑
+
+**坑 1：`SentenceTransformer` 默认以 float32 加载，慢一倍多**
+Qwen3-Embedding 权重是 **bfloat16**，但不显式指定 dtype 时 `from_pretrained` 会升成 fp32：
+
+| 配置 | 显存（空闲） | 实测吞吐（874 token/块） |
+|---|---|---|
+| fp32, batch 8 | 7,617 MiB | 3.5 chunks/s |
+| fp32, batch 16 | — | **2.3 chunks/s（更慢）** |
+| fp32, batch 32 | — | **崩溃（OOM）** |
+| **bf16, batch 16** | **1,781 MiB** | **6.4 chunks/s** |
+
+fp32 的 2.4 GB 权重 + fp32 激活把 8 GB 显存吃满，所以"批次越大越慢"、到 32 直接崩。
+显式传 `torch_dtype` 后显存降到 1.8 GB，吞吐 **1.83×**。
+（`probe_embedding_throughput.py` 就是为此写的——先量再跑，别拿 6 小时赌。）
+
+**坑 2：批次内存随"最长序列"走，固定批大小会在长 XML def 上 OOM**
+padding 是逐批的，`batch_size × 批内最长长度` 决定显存。加了 **token 预算分批器**
+（`_budgeted_batches`，默认 8,192 token），按"条数 ≤16 且总长 ≤预算"切。
+12k 字符的长输入实测把显存推到 7.7 GB 仍不崩。
+
+**坑 3：`HttpClient` 默认超时会掐断健康的重嵌入**
+`EmbeddingServerClient` 原本统一 120 s。索引一批 1024 块要 ~170 s → 必然超时。
+查询路径要"快速失败"，批处理路径要"允许几分钟"，所以把超时改成参数：
+查询仍 120 s，**批处理 30 min**。
+
+### 12.5 重嵌入启动参数与实测 ETA
+
+```
+python/embedding_server.py --model models/Qwen3-Embedding-0.6B --port 5001 \
+    --max-length 2048 --st-batch-size 16 --st-token-budget 8192 --dtype auto
+index --root B:\rimworld-code\_SourceCode --vec index\vec ... --embedding-server http://127.0.0.1:5001 --python-batch 256
+```
+
+- **端口 5001**（不是 5000）：e5 仍在 5000 服务线上 MCP，重建期间工具不降级
+- `index\vec` → 改名为 `index\vec.e5`；线上 MCP 进程已把向量读进内存，**重命名不影响它**
+- `index\vec.e5bak` 是完整备份（2,164 MB）
+
+**实测速率与 ETA（重要修正）**：合成探测（874 token/块）给的是 6.4 chunks/s → 6.2 h，
+但**真实语料实测 21.3 chunks/s**（3,840 块 / 180 s）→ **约 1.9 小时**。
+说明真实 chunk 平均远短于 874 token（大量小 C# 成员）。
+**教训：合成吞吐探测只能给下界，真值要看真实语料的进度计数。**
+
+### 12.6 验收清单（重嵌入完成后执行）
+
+1. `/health` 确认 `dim=1024`、`dtype=torch.bfloat16`、`prompts=[document, query]`
+2. `smoke_embedding_server.py` 全过（含"query 与 passage 必须不同"这条）
+3. `bench --diagnose` 对比 `tests/baseline-e5.json`：重点看 **bilingual-mod** 能否从 0.125 起飞
+4. 重嵌入后 `vectors.bin` 应为 144,732 × 1024 × 4 ≈ **565 MB**
+5. 把 5000 端口的 e5 服务换成 Qwen3（这样 MCP 配置不用改）

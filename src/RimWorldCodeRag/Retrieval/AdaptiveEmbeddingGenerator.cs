@@ -79,7 +79,9 @@ internal sealed class ServerBatchEmbeddingGenerator : IEmbeddingGenerator
 
     public ServerBatchEmbeddingGenerator(string serverUrl, int batchSize = 128)
     {
-        _client = new EmbeddingServerClient(serverUrl, cacheSize: 0); // No cache for batch operations
+        // Batch requests embed hundreds of chunks and legitimately take minutes, so the query-side
+        // timeout would abort a healthy re-embed.
+        _client = new EmbeddingServerClient(serverUrl, cacheSize: 0, timeout: TimeSpan.FromMinutes(30));
         _batchSize = Math.Max(1, batchSize);
     }
 

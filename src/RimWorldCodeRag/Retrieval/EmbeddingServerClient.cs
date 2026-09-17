@@ -24,12 +24,17 @@ internal sealed class EmbeddingServerClient : IDisposable
         WriteIndented = false
     };
 
-    public EmbeddingServerClient(string baseUrl = "http://127.0.0.1:5000", int cacheSize = 100)
+    /// <param name="timeout">
+    /// Per-request timeout. The default (120 s) suits a query, which must fail fast when the server
+    /// is down. The indexing path must pass something much larger: a single batch request embeds
+    /// hundreds of chunks, which legitimately takes minutes.
+    /// </param>
+    public EmbeddingServerClient(string baseUrl = "http://127.0.0.1:5000", int cacheSize = 100, TimeSpan? timeout = null)
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(120) 
+            Timeout = timeout ?? TimeSpan.FromSeconds(120)
         };
         _cache = new EmbeddingCache(cacheSize);
     }

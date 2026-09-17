@@ -36,6 +36,8 @@ public static class Program
                 return await RetrievalBenchmark.RunAsync(ParseOptions(tail));
             case "pack-vectors":
                 return RunPackVectors(tail);
+            case "build-mod-catalog":
+                return RunBuildModCatalog(tail);
             default:
                 Console.Error.WriteLine($"Unknown command '{command}'.");
                 PrintUsage();
@@ -282,6 +284,84 @@ public static class Program
         catch (Exception ex)
         {
             Console.Error.WriteLine($"pack-vectors failed: {ex.Message}");
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Rebuild only the mod alias/vocabulary table (<c>index/mods.json</c>) from a source-tree
+    /// snapshot, without touching Lucene, the vectors or the graph.
+    /// </summary>
+    private static int RunBuildModCatalog(string[] args)
+    {
+        var options = ParseOptions(args);
+        if (!options.TryGetValue("root", out var root))
+        {
+            Console.Error.WriteLine("Missing required option --root <path>.");
+            return 1;
+        }
+
+        var vec = GetOrDefault(options, "vec", Path.Combine("index", "vec"));
+        var threads = int.TryParse(GetOrDefault(options, "threads", Environment.ProcessorCount.ToString()), out var parsedThreads)
+            ? parsedThreads
+            : Environment.ProcessorCount;
+
+        try
+        {
+            var sourceRoot = Path.GetFullPath(root);
+            var vectorPath = Path.GetFullPath(vec);
+            var indexRoot = PathExclusionFilter.ResolveIndexRoot(vectorPath);
+
+            // Dummy paths: the snapshot only reads SourceRoot and MaxDegreeOfParallelism.
+            var config = new IndexingConfig
+            {
+                SourceRoot = sourceRoot,
+                LuceneIndexPath = Path.Combine(indexRoot, "lucene"),
+                VectorIndexPath = vectorPath,
+                GraphPath = Path.Combine(indexRoot, "graph"),
+                MetadataPath = Path.Combine(indexRoot, "meta"),
+                ModelPath = string.Empty,
+                MaxDegreeOfParallelism = Math.Max(1, threads),
+                Incremental = true
+            };
+
+            PathExclusionFilter.EnsureFile(indexRoot);
+            var exclusion = PathExclusionFilter.LoadForIndex(vectorPath);
+            config = new IndexingConfig
+            {
+                SourceRoot = sourceRoot,
+                LuceneIndexPath = config.LuceneIndexPath,
+                VectorIndexPath = config.VectorIndexPath,
+                GraphPath = config.GraphPath,
+                MetadataPath = config.MetadataPath,
+                ModelPath = config.ModelPath,
+                MaxDegreeOfParallelism = config.MaxDegreeOfParallelism,
+                Incremental = true,
+                ExclusionFilter = exclusion
+            };
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var chunker = new Chunker(config, new MetadataStore(Path.Combine(config.MetadataPath, "mtimes.catalog.json")));
+            var chunks = chunker.BuildFullSnapshot();
+            var entries = ModCatalogBuilder.Build(sourceRoot, chunks);
+            ModCatalog.Save(indexRoot, entries);
+            watch.Stop();
+
+            Console.WriteLine($"[mod-catalog] {chunks.Count:N0} chunks -> {entries.Count} mods in {watch.Elapsed.TotalSeconds:F1}s");
+            Console.WriteLine($"[mod-catalog] wrote {Path.Combine(indexRoot, ModCatalog.FileName)}");
+            foreach (var entry in entries.OrderByDescending(e => e.ChunkCount).Take(15))
+            {
+                Console.WriteLine($"  {entry.ChunkCount,7:N0}  {entry.Dir}");
+                Console.WriteLine($"           aliases: {string.Join(" | ", entry.Aliases)}");
+                Console.WriteLine($"           namespaces: {string.Join(", ", entry.Namespaces)}");
+                Console.WriteLine($"           defPrefixes: {string.Join(", ", entry.DefNamePrefixes)}");
+            }
+
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"build-mod-catalog failed: {ex.Message}");
             return 1;
         }
     }

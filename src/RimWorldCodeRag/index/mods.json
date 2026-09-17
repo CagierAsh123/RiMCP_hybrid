@@ -1,0 +1,1532 @@
+{
+  "Version": 1,
+  "Mods": [
+    {
+      "Dir": "Vehicle Framework",
+      "Aliases": [
+        "Vehicle Framework",
+        "Vehicles"
+      ],
+      "Namespaces": [
+        "Vehicles",
+        "SmashTools",
+        "Vehicles.World",
+        "SmashTools.Animations",
+        "SmashTools.Performance",
+        "UpdateLogTool",
+        "Vehicles.Rendering",
+        "Vehicles.Compatibility"
+      ],
+      "DefTypes": [
+        "Vehicles.VehicleEventDef",
+        "Vehicles.PatternDef",
+        "DutyDef",
+        "Vehicles.StatUpgradeCategoryDef",
+        "SmashTools.Animations.AnimationParameterDef",
+        "Vehicles.VehicleStatDef",
+        "HistoryEventDef",
+        "ThinkTreeDef",
+        "StatCategoryDef",
+        "Vehicles.VehicleTurretEventDef"
+      ],
+      "DefNamePrefixes": [
+        "VF_"
+      ],
+      "ChunkCount": 8773,
+      "ExpansionTerms": [
+        "Vehicles",
+        "SmashTools",
+        "Vehicles.World",
+        "SmashTools.Animations",
+        "SmashTools.Performance",
+        "UpdateLogTool",
+        "Vehicles.Rendering",
+        "Vehicles.Compatibility",
+        "Vehicles.VehicleEventDef",
+        "Vehicles.PatternDef",
+        "DutyDef",
+        "Vehicles.StatUpgradeCategoryDef",
+        "SmashTools.Animations.AnimationParameterDef",
+        "Vehicles.VehicleStatDef",
+        "HistoryEventDef",
+        "ThinkTreeDef",
+        "StatCategoryDef",
+        "Vehicles.VehicleTurretEventDef",
+        "VF"
+      ]
+    },
+    {
+      "Dir": "Vanilla Expanded Framework",
+      "Aliases": [
+        "Vanilla Expanded Framework",
+        "PipeSystem"
+      ],
+      "Namespaces": [
+        "VEF.AnimalBehaviours",
+        "PipeSystem",
+        "VEF.Weapons",
+        "VEF.Buildings",
+        "KCSG",
+        "VEF.Apparels",
+        "VEF.Abilities",
+        "VEF.Genes"
+      ],
+      "DefTypes": [
+        "StatDef",
+        "RuleDef",
+        "TrainableDef",
+        "ThinkTreeDef",
+        "TerrainDef",
+        "GenStepDef",
+        "MapGeneratorDef",
+        "ScenPartDef",
+        "VEF.OptionalFeatures.OptionalFeaturesDef",
+        "AbilityDef"
+      ],
+      "DefNamePrefixes": [
+        "VEF_",
+        "KCSG_"
+      ],
+      "ChunkCount": 7572,
+      "ExpansionTerms": [
+        "VEF.AnimalBehaviours",
+        "PipeSystem",
+        "VEF.Weapons",
+        "VEF.Buildings",
+        "KCSG",
+        "VEF.Apparels",
+        "VEF.Abilities",
+        "VEF.Genes",
+        "StatDef",
+        "RuleDef",
+        "TrainableDef",
+        "ThinkTreeDef",
+        "TerrainDef",
+        "GenStepDef",
+        "MapGeneratorDef",
+        "ScenPartDef",
+        "VEF.OptionalFeatures.OptionalFeaturesDef",
+        "AbilityDef",
+        "VEF",
+        "KCSG"
+      ]
+    },
+    {
+      "Dir": "\u6DF1\u5EA6\u5B58\u50A8\u6846\u67B6\uFF08Adaptive Storage Framework\uFF09",
+      "Aliases": [
+        "\u6DF1\u5EA6\u5B58\u50A8\u6846\u67B6\uFF08Adaptive Storage Framework\uFF09",
+        "\u6DF1\u5EA6\u5B58\u50A8\u6846\u67B6",
+        "Adaptive Storage Framework",
+        "AdaptiveStorage"
+      ],
+      "Namespaces": [
+        "AdaptiveStorage.Fishery.Utility.Diagnostics",
+        "AdaptiveStorage",
+        "AdaptiveStorage.Fishery",
+        "AdaptiveStorage.Fishery.Collections",
+        "AdaptiveStorage.Utility",
+        "AdaptiveStorage.Fishery.Pools",
+        "AdaptiveStorage.PrintDatas",
+        "AdaptiveStorage.HarmonyPatches"
+      ],
+      "DefTypes": [
+        "AdaptiveStorage.ContentLabelStyleDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 6085,
+      "ExpansionTerms": [
+        "AdaptiveStorage.Fishery.Utility.Diagnostics",
+        "AdaptiveStorage",
+        "AdaptiveStorage.Fishery",
+        "AdaptiveStorage.Fishery.Collections",
+        "AdaptiveStorage.Utility",
+        "AdaptiveStorage.Fishery.Pools",
+        "AdaptiveStorage.PrintDatas",
+        "AdaptiveStorage.HarmonyPatches",
+        "AdaptiveStorage.ContentLabelStyleDef"
+      ]
+    },
+    {
+      "Dir": "Vehicle Map Framework",
+      "Aliases": [
+        "Vehicle Map Framework",
+        "VehicleMapFramework"
+      ],
+      "Namespaces": [
+        "VehicleMapFramework.VMF_HarmonyPatches",
+        "VehicleMapFramework",
+        "VMF_AchtungPatch",
+        "VehicleMapFramework.Settings",
+        "VehicleInteriors"
+      ],
+      "DefTypes": [
+        "ShaderTypeDef",
+        "DutyDef",
+        "DesignatorDropdownGroupDef",
+        "TerrainDef",
+        "TerrainAffordanceDef",
+        "ScenPartDef",
+        "Vehicles.VehicleBuildDef",
+        "Vehicles.VehicleDef",
+        "VehicleMapFramework.MapVehicleEventDef",
+        "WorldObjectDef"
+      ],
+      "DefNamePrefixes": [
+        "VMF_"
+      ],
+      "ChunkCount": 4374,
+      "ExpansionTerms": [
+        "VehicleMapFramework.VMF_HarmonyPatches",
+        "VehicleMapFramework",
+        "VMF_AchtungPatch",
+        "VehicleMapFramework.Settings",
+        "VehicleInteriors",
+        "ShaderTypeDef",
+        "DutyDef",
+        "DesignatorDropdownGroupDef",
+        "TerrainDef",
+        "TerrainAffordanceDef",
+        "ScenPartDef",
+        "Vehicles.VehicleBuildDef",
+        "Vehicles.VehicleDef",
+        "VehicleMapFramework.MapVehicleEventDef",
+        "WorldObjectDef",
+        "VMF"
+      ]
+    },
+    {
+      "Dir": "\u7C73\u5E1D\u56FD\u524D\u7F6E-oc\u89D2\u8272\uFF08Ariandel Library\uFF09",
+      "Aliases": [
+        "\u7C73\u5E1D\u56FD\u524D\u7F6E-oc\u89D2\u8272\uFF08Ariandel Library\uFF09",
+        "\u7C73\u5E1D\u56FD\u524D\u7F6E-oc\u89D2\u8272",
+        "Ariandel Library",
+        "AriandelLibrary"
+      ],
+      "Namespaces": [
+        "AriandelLibrary",
+        "AriandelLibrary.Milira",
+        "AriandelLibrary.Anomaly",
+        "AriandelLibrary.FA",
+        "AriandelLibrary.rjw.menstruation",
+        "AriandelLibrary.Royalty"
+      ],
+      "DefTypes": [
+        "StatDef",
+        "ShaderTypeDef",
+        "EffecterDef",
+        "DamageDef",
+        "AriandelLibrary.SpecialPawnTabDef",
+        "AriandelLibrary.PawnStatusMeterDef",
+        "AriandelLibrary.MutatorDef",
+        "AriandelLibrary.AL_AbilityDef",
+        "ThinkTreeDef",
+        "SongDef"
+      ],
+      "DefNamePrefixes": [
+        "AL_",
+        "MI_"
+      ],
+      "ChunkCount": 4125,
+      "ExpansionTerms": [
+        "AriandelLibrary",
+        "AriandelLibrary.Milira",
+        "AriandelLibrary.Anomaly",
+        "AriandelLibrary.FA",
+        "AriandelLibrary.rjw.menstruation",
+        "AriandelLibrary.Royalty",
+        "StatDef",
+        "ShaderTypeDef",
+        "EffecterDef",
+        "DamageDef",
+        "AriandelLibrary.SpecialPawnTabDef",
+        "AriandelLibrary.PawnStatusMeterDef",
+        "AriandelLibrary.MutatorDef",
+        "AriandelLibrary.AL_AbilityDef",
+        "ThinkTreeDef",
+        "SongDef",
+        "AL",
+        "MI"
+      ]
+    },
+    {
+      "Dir": "Melee Animation",
+      "Aliases": [
+        "Melee Animation",
+        "ColourPicker"
+      ],
+      "Namespaces": [
+        "Meta.Numerics.Statistics.Distributions",
+        "Meta.Numerics.Functions",
+        "Meta.Numerics.Statistics",
+        "Meta.Numerics.Matrices",
+        "AM",
+        "Meta.Numerics.Analysis",
+        "Meta.Numerics",
+        "AM.AMSettings"
+      ],
+      "DefTypes": [
+        "AM.AnimDef",
+        "RulePackDef",
+        "StatDef",
+        "AM.UniqueSkillDef",
+        "JoyGiverDef",
+        "PawnColumnDef",
+        "ApparelLayerDef",
+        "JoyKindDef",
+        "VBE.BackgroundImageDef",
+        "TipSetDef"
+      ],
+      "DefNamePrefixes": [
+        "AM_"
+      ],
+      "ChunkCount": 3673,
+      "ExpansionTerms": [
+        "Meta.Numerics.Statistics.Distributions",
+        "Meta.Numerics.Functions",
+        "Meta.Numerics.Statistics",
+        "Meta.Numerics.Matrices",
+        "AM",
+        "Meta.Numerics.Analysis",
+        "Meta.Numerics",
+        "AM.AMSettings",
+        "AM.AnimDef",
+        "RulePackDef",
+        "StatDef",
+        "AM.UniqueSkillDef",
+        "JoyGiverDef",
+        "PawnColumnDef",
+        "ApparelLayerDef",
+        "JoyKindDef",
+        "VBE.BackgroundImageDef",
+        "TipSetDef",
+        "AM"
+      ]
+    },
+    {
+      "Dir": "\u89D2\u8272\u7F16\u8F91\u5668-ce\uFF08Character Editor\uFF09",
+      "Aliases": [
+        "\u89D2\u8272\u7F16\u8F91\u5668-ce\uFF08Character Editor\uFF09",
+        "\u89D2\u8272\u7F16\u8F91\u5668-ce",
+        "Character Editor",
+        "CharacterEditor"
+      ],
+      "Namespaces": [
+        "CharacterEditor"
+      ],
+      "DefTypes": [
+        "GeneDef",
+        "LifeStageDef",
+        "GradientHairMaskDef",
+        "GeneCategoryDef",
+        "DesignatorDropdownGroupDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 3434,
+      "ExpansionTerms": [
+        "CharacterEditor",
+        "GeneDef",
+        "LifeStageDef",
+        "GradientHairMaskDef",
+        "GeneCategoryDef",
+        "DesignatorDropdownGroupDef"
+      ]
+    },
+    {
+      "Dir": "Ancot Library",
+      "Aliases": [
+        "Ancot Library",
+        "AncotLibrary"
+      ],
+      "Namespaces": [
+        "AncotLibrary",
+        "FCI_Milira",
+        "AncotLibrary.Utility"
+      ],
+      "DefTypes": [
+        "StatDef",
+        "AncotLibrary.ThingColumnDef",
+        "PawnColumnDef",
+        "BodyPartDef",
+        "StatCategoryDef",
+        "ScenPartDef",
+        "RenderSkipFlagDef",
+        "ThingCategoryDef",
+        "EffecterDef",
+        "ApparelLayerDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 3246,
+      "ExpansionTerms": [
+        "AncotLibrary",
+        "FCI_Milira",
+        "AncotLibrary.Utility",
+        "StatDef",
+        "AncotLibrary.ThingColumnDef",
+        "PawnColumnDef",
+        "BodyPartDef",
+        "StatCategoryDef",
+        "ScenPartDef",
+        "RenderSkipFlagDef",
+        "ThingCategoryDef",
+        "EffecterDef",
+        "ApparelLayerDef"
+      ]
+    },
+    {
+      "Dir": "\u95EA\u8000\u4E16\u754C\u6BC1\u706D\u80055\uFF08Glitterworld Destroyer 5 - Mechanoid Addon\uFF09",
+      "Aliases": [
+        "\u95EA\u8000\u4E16\u754C\u6BC1\u706D\u80055\uFF08Glitterworld Destroyer 5 - Mechanoid Addon\uFF09",
+        "\u95EA\u8000\u4E16\u754C\u6BC1\u706D\u80055",
+        "Glitterworld Destroyer 5 - Mechanoid Addon"
+      ],
+      "Namespaces": [
+        "GD3"
+      ],
+      "DefTypes": [
+        "KCSG.SymbolDef",
+        "PrefabDef",
+        "QuestScriptDef",
+        "RecipeDef",
+        "ResearchProjectDef",
+        "DamageDef",
+        "AnimationDef",
+        "AbilityDef",
+        "PawnKindDef",
+        "GenStepDef"
+      ],
+      "DefNamePrefixes": [
+        "GD_",
+        "GD3_"
+      ],
+      "ChunkCount": 2838,
+      "ExpansionTerms": [
+        "GD3",
+        "KCSG.SymbolDef",
+        "PrefabDef",
+        "QuestScriptDef",
+        "RecipeDef",
+        "ResearchProjectDef",
+        "DamageDef",
+        "AnimationDef",
+        "AbilityDef",
+        "PawnKindDef",
+        "GenStepDef",
+        "GD",
+        "GD3"
+      ]
+    },
+    {
+      "Dir": "\u9F20\u9F20\u672C\u4F53\uFF08NewRatkinPlus\uFF09",
+      "Aliases": [
+        "\u9F20\u9F20\u672C\u4F53\uFF08NewRatkinPlus\uFF09",
+        "\u9F20\u9F20\u672C\u4F53",
+        "NewRatkinPlus",
+        "NewRatkin"
+      ],
+      "Namespaces": [
+        "NewRatkin",
+        "NewRatkin.AlienRaceCompat",
+        "SYS"
+      ],
+      "DefTypes": [
+        "AlienRace.AlienBackstoryDef",
+        "PawnKindDef",
+        "ResearchProjectDef",
+        "HairDef",
+        "RulePackDef",
+        "ThingCategoryDef",
+        "GeneDef",
+        "RecipeDef",
+        "TraderKindDef",
+        "HeadTypeDef"
+      ],
+      "DefNamePrefixes": [
+        "RK_"
+      ],
+      "ChunkCount": 2530,
+      "ExpansionTerms": [
+        "NewRatkin",
+        "NewRatkin.AlienRaceCompat",
+        "SYS",
+        "AlienRace.AlienBackstoryDef",
+        "PawnKindDef",
+        "ResearchProjectDef",
+        "HairDef",
+        "RulePackDef",
+        "ThingCategoryDef",
+        "GeneDef",
+        "RecipeDef",
+        "TraderKindDef",
+        "HeadTypeDef",
+        "RK"
+      ]
+    },
+    {
+      "Dir": "Milira Race",
+      "Aliases": [
+        "Milira Race",
+        "Milira"
+      ],
+      "Namespaces": [
+        "Milira",
+        "Milira_Kiiro"
+      ],
+      "DefTypes": [
+        "ResearchProjectDef",
+        "EffecterDef",
+        "BodyPartDef",
+        "PawnKindDef",
+        "RecipeDef",
+        "AlienRace.AlienBackstoryDef",
+        "GraphicStateDef",
+        "GenStepDef",
+        "RoyalTitlePermitDef",
+        "SitePartDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 2403,
+      "ExpansionTerms": [
+        "Milira",
+        "Milira_Kiiro",
+        "ResearchProjectDef",
+        "EffecterDef",
+        "BodyPartDef",
+        "PawnKindDef",
+        "RecipeDef",
+        "AlienRace.AlienBackstoryDef",
+        "GraphicStateDef",
+        "GenStepDef",
+        "RoyalTitlePermitDef",
+        "SitePartDef"
+      ]
+    },
+    {
+      "Dir": "Torment Master",
+      "Aliases": [
+        "Torment Master"
+      ],
+      "Namespaces": [
+        "TormentMaster.Patches",
+        "TormentMaster.LaserFlayer",
+        "TormentMaster.Vending",
+        "TormentMaster.Food",
+        "TormentMaster.Jobs",
+        "TormentMaster.Hediffs",
+        "TormentMaster.WaterPrison",
+        "TormentMaster.LiveTargetRange"
+      ],
+      "DefTypes": [
+        "JoyGiverDef",
+        "JoyKindDef",
+        "RecipeDef",
+        "DamageDef",
+        "ResearchProjectDef",
+        "MainButtonDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 1899,
+      "ExpansionTerms": [
+        "TormentMaster.Patches",
+        "TormentMaster.LaserFlayer",
+        "TormentMaster.Vending",
+        "TormentMaster.Food",
+        "TormentMaster.Jobs",
+        "TormentMaster.Hediffs",
+        "TormentMaster.WaterPrison",
+        "TormentMaster.LiveTargetRange",
+        "JoyGiverDef",
+        "JoyKindDef",
+        "RecipeDef",
+        "DamageDef",
+        "ResearchProjectDef",
+        "MainButtonDef"
+      ]
+    },
+    {
+      "Dir": "god hand",
+      "Aliases": [
+        "god hand",
+        "GodHandMod"
+      ],
+      "Namespaces": [
+        "GodHandMod",
+        "GodHandMod.SettingsPages",
+        "GodHandMod.Patch"
+      ],
+      "DefTypes": [
+        "GodHandMod.GodHandQuizDef",
+        "GodHandMod.ModelDef",
+        "DesignationCategoryDef",
+        "WorkTypeDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 1653,
+      "ExpansionTerms": [
+        "GodHandMod",
+        "GodHandMod.SettingsPages",
+        "GodHandMod.Patch",
+        "GodHandMod.GodHandQuizDef",
+        "GodHandMod.ModelDef",
+        "DesignationCategoryDef",
+        "WorkTypeDef"
+      ]
+    },
+    {
+      "Dir": "\u6C83\u82AC\u672C\u4F53\uFF08Wolfein Race\uFF09",
+      "Aliases": [
+        "\u6C83\u82AC\u672C\u4F53\uFF08Wolfein Race\uFF09",
+        "\u6C83\u82AC\u672C\u4F53",
+        "Wolfein Race",
+        "Wolfein"
+      ],
+      "Namespaces": [
+        "Wolfein"
+      ],
+      "DefTypes": [
+        "AlienRace.AlienBackstoryDef",
+        "RecipeDef",
+        "PawnKindDef",
+        "ResearchProjectDef",
+        "QuestScriptDef",
+        "HeadTypeDef",
+        "GenStepDef",
+        "ThingCategoryDef",
+        "SitePartDef",
+        "AbilityDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 1527,
+      "ExpansionTerms": [
+        "Wolfein",
+        "AlienRace.AlienBackstoryDef",
+        "RecipeDef",
+        "PawnKindDef",
+        "ResearchProjectDef",
+        "QuestScriptDef",
+        "HeadTypeDef",
+        "GenStepDef",
+        "ThingCategoryDef",
+        "SitePartDef",
+        "AbilityDef"
+      ]
+    },
+    {
+      "Dir": "RimTalk",
+      "Aliases": [
+        "RimTalk"
+      ],
+      "Namespaces": [
+        "RimTalk.UI",
+        "RimTalk.Data",
+        "RimTalk.Prompt",
+        "RimTalk.Util",
+        "RimTalk.Service",
+        "RimTalk",
+        "RimTalk.API",
+        "RimTalk.Client.OpenAI"
+      ],
+      "DefTypes": [
+        "MainButtonDef",
+        "InteractionDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 1441,
+      "ExpansionTerms": [
+        "RimTalk.UI",
+        "RimTalk.Data",
+        "RimTalk.Prompt",
+        "RimTalk.Util",
+        "RimTalk.Service",
+        "RimTalk",
+        "RimTalk.API",
+        "RimTalk.Client.OpenAI",
+        "MainButtonDef",
+        "InteractionDef"
+      ]
+    },
+    {
+      "Dir": "\u53D9\u4E8B\u8005\u7C73\u5A05\uFF08Storyteller\uFF1AMia\uFF09",
+      "Aliases": [
+        "\u53D9\u4E8B\u8005\u7C73\u5A05\uFF08Storyteller\uFF1AMia\uFF09",
+        "\u53D9\u4E8B\u8005\u7C73\u5A05",
+        "Storyteller\uFF1AMia"
+      ],
+      "Namespaces": [
+        "Mia"
+      ],
+      "DefTypes": [
+        "GameConditionDef",
+        "Mia.MiaPersonaDef",
+        "IncidentDef",
+        "PawnKindDef",
+        "BackstoryDef",
+        "StorytellerDef",
+        "Mia.MiaAvatarDef",
+        "AnimationDef",
+        "TraitDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 1315,
+      "ExpansionTerms": [
+        "Mia",
+        "GameConditionDef",
+        "Mia.MiaPersonaDef",
+        "IncidentDef",
+        "PawnKindDef",
+        "BackstoryDef",
+        "StorytellerDef",
+        "Mia.MiaAvatarDef",
+        "AnimationDef",
+        "TraitDef"
+      ]
+    },
+    {
+      "Dir": "RimTalk - Expand Memory\uFF08rimtalk-memory\uFF09",
+      "Aliases": [
+        "RimTalk - Expand Memory\uFF08rimtalk-memory\uFF09",
+        "RimTalk - Expand Memory",
+        "rimtalk-memory"
+      ],
+      "Namespaces": [
+        "RimTalk.Memory",
+        "RimTalk.Memory.UI",
+        "RimTalk.Memory.API",
+        "RimTalk.Memory.AI",
+        "RimTalk.MemoryPatch",
+        "RimTalk.Memory.AI.Client",
+        "RimTalk.Memory.Maintenance",
+        "RimTalk.Memory.Capture"
+      ],
+      "DefTypes": [
+        "MainButtonDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 1029,
+      "ExpansionTerms": [
+        "RimTalk.Memory",
+        "RimTalk.Memory.UI",
+        "RimTalk.Memory.API",
+        "RimTalk.Memory.AI",
+        "RimTalk.MemoryPatch",
+        "RimTalk.Memory.AI.Client",
+        "RimTalk.Memory.Maintenance",
+        "RimTalk.Memory.Capture",
+        "MainButtonDef"
+      ]
+    },
+    {
+      "Dir": "Achtung!",
+      "Aliases": [
+        "Achtung!",
+        "AchtungMod"
+      ],
+      "Namespaces": [
+        "AchtungMod",
+        "Brrainz"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 997,
+      "ExpansionTerms": [
+        "AchtungMod",
+        "Brrainz"
+      ]
+    },
+    {
+      "Dir": "\u5916\u661F\u4EBA\u6846\u67B6\uFF08Humanoid Alien Races\uFF09",
+      "Aliases": [
+        "\u5916\u661F\u4EBA\u6846\u67B6\uFF08Humanoid Alien Races\uFF09",
+        "\u5916\u661F\u4EBA\u6846\u67B6",
+        "Humanoid Alien Races",
+        "AlienRace"
+      ],
+      "Namespaces": [
+        "AlienRace",
+        "AlienRace.ExtendedGraphics",
+        "AlienRace.ApparelGraphics"
+      ],
+      "DefTypes": [
+        "PreceptDef",
+        "HistoryEventDef",
+        "IssueDef",
+        "TraitDef",
+        "ThingCategoryDef",
+        "MemeDef",
+        "ShaderTypeDef",
+        "ScenPartDef",
+        "MemeGroupDef"
+      ],
+      "DefNamePrefixes": [
+        "HAR_"
+      ],
+      "ChunkCount": 940,
+      "ExpansionTerms": [
+        "AlienRace",
+        "AlienRace.ExtendedGraphics",
+        "AlienRace.ApparelGraphics",
+        "PreceptDef",
+        "HistoryEventDef",
+        "IssueDef",
+        "TraitDef",
+        "ThingCategoryDef",
+        "MemeDef",
+        "ShaderTypeDef",
+        "ScenPartDef",
+        "MemeGroupDef",
+        "HAR"
+      ]
+    },
+    {
+      "Dir": "Phinix",
+      "Aliases": [
+        "Phinix",
+        "PhinixClient"
+      ],
+      "Namespaces": [
+        "PhinixClient",
+        "PhinixClient.GUI",
+        "PhinixClient.Patches"
+      ],
+      "DefTypes": [
+        "LetterDef",
+        "MainButtonDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 844,
+      "ExpansionTerms": [
+        "PhinixClient",
+        "PhinixClient.GUI",
+        "PhinixClient.Patches",
+        "LetterDef",
+        "MainButtonDef"
+      ]
+    },
+    {
+      "Dir": "Yuran race",
+      "Aliases": [
+        "Yuran race",
+        "YuranRaceCustom"
+      ],
+      "Namespaces": [
+        "YuranRaceCustom",
+        "Yuran_EggClass",
+        "SYS",
+        "SpawnerYuran",
+        "TorgueYuran",
+        "ContDamYuran",
+        "YuranRandom",
+        "Yuran_Voice"
+      ],
+      "DefTypes": [
+        "AlienRace.AlienBackstoryDef",
+        "PawnKindDef",
+        "RecipeDef",
+        "EffecterDef",
+        "DamageDef",
+        "AbilityDef",
+        "RoyalTitleDef",
+        "RuleDef",
+        "ResearchProjectDef",
+        "ThingCategoryDef"
+      ],
+      "DefNamePrefixes": [
+        "YR_"
+      ],
+      "ChunkCount": 837,
+      "ExpansionTerms": [
+        "YuranRaceCustom",
+        "Yuran_EggClass",
+        "SYS",
+        "SpawnerYuran",
+        "TorgueYuran",
+        "ContDamYuran",
+        "YuranRandom",
+        "Yuran_Voice",
+        "AlienRace.AlienBackstoryDef",
+        "PawnKindDef",
+        "RecipeDef",
+        "EffecterDef",
+        "DamageDef",
+        "AbilityDef",
+        "RoyalTitleDef",
+        "RuleDef",
+        "ResearchProjectDef",
+        "ThingCategoryDef",
+        "YR"
+      ]
+    },
+    {
+      "Dir": "\u6027\u80FD\u76D1\u89C6\u5668\uFF08Dubs Performance Analyzer\uFF09",
+      "Aliases": [
+        "\u6027\u80FD\u76D1\u89C6\u5668\uFF08Dubs Performance Analyzer\uFF09",
+        "\u6027\u80FD\u76D1\u89C6\u5668",
+        "Dubs Performance Analyzer",
+        "Analyzer"
+      ],
+      "Namespaces": [
+        "Analyzer.Profiling",
+        "Analyzer",
+        "ColourPicker",
+        "Analyzer.Profiling.Patches.Tick"
+      ],
+      "DefTypes": [
+        "KeyBindingDef",
+        "MainButtonDef",
+        "KeyBindingCategoryDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 758,
+      "ExpansionTerms": [
+        "Analyzer.Profiling",
+        "Analyzer",
+        "ColourPicker",
+        "Analyzer.Profiling.Patches.Tick",
+        "KeyBindingDef",
+        "MainButtonDef",
+        "KeyBindingCategoryDef"
+      ]
+    },
+    {
+      "Dir": "\u7EEE\u7F57\u672C\u4F53\uFF08Kiiro Race\uFF09",
+      "Aliases": [
+        "\u7EEE\u7F57\u672C\u4F53\uFF08Kiiro Race\uFF09",
+        "\u7EEE\u7F57\u672C\u4F53",
+        "Kiiro Race",
+        "Kiiro"
+      ],
+      "Namespaces": [
+        "Kiiro"
+      ],
+      "DefTypes": [
+        "AlienRace.AlienBackstoryDef",
+        "PawnKindDef",
+        "ResearchProjectDef",
+        "RecipeDef",
+        "HeadTypeDef",
+        "TraitDef",
+        "ThingCategoryDef",
+        "ApparelLayerDef",
+        "TraderKindDef",
+        "ManeuverDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 683,
+      "ExpansionTerms": [
+        "Kiiro",
+        "AlienRace.AlienBackstoryDef",
+        "PawnKindDef",
+        "ResearchProjectDef",
+        "RecipeDef",
+        "HeadTypeDef",
+        "TraitDef",
+        "ThingCategoryDef",
+        "ApparelLayerDef",
+        "TraderKindDef",
+        "ManeuverDef"
+      ]
+    },
+    {
+      "Dir": "Allow Tool",
+      "Aliases": [
+        "Allow Tool",
+        "AllowTool"
+      ],
+      "Namespaces": [
+        "AllowTool",
+        "AllowTool.Context",
+        "AllowTool.Patches",
+        "AllowTool.Settings"
+      ],
+      "DefTypes": [
+        "HugsLib.UpdateFeatureDef",
+        "KeyBindingDef",
+        "AllowTool.ThingDesignatorDef",
+        "AllowTool.ReverseDesignatorDef",
+        "WorkTypeDef",
+        "DesignationDef",
+        "KeyBindingCategoryDef",
+        "EffecterDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 642,
+      "ExpansionTerms": [
+        "AllowTool",
+        "AllowTool.Context",
+        "AllowTool.Patches",
+        "AllowTool.Settings",
+        "HugsLib.UpdateFeatureDef",
+        "KeyBindingDef",
+        "AllowTool.ThingDesignatorDef",
+        "AllowTool.ReverseDesignatorDef",
+        "WorkTypeDef",
+        "DesignationDef",
+        "KeyBindingCategoryDef",
+        "EffecterDef"
+      ]
+    },
+    {
+      "Dir": "phinix\u7EA2\u5305",
+      "Aliases": [
+        "phinix\u7EA2\u5305",
+        "PhinixRedPacket"
+      ],
+      "Namespaces": [
+        "PhinixRedPacket",
+        "PhinixRedPacket.Patches"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 450,
+      "ExpansionTerms": [
+        "PhinixRedPacket",
+        "PhinixRedPacket.Patches"
+      ]
+    },
+    {
+      "Dir": "\u9762\u90E8\u52A8\u753B-wip\uFF08[NL] Facial Animation - WIP\uFF09",
+      "Aliases": [
+        "\u9762\u90E8\u52A8\u753B-wip\uFF08[NL] Facial Animation - WIP\uFF09",
+        "\u9762\u90E8\u52A8\u753B-wip",
+        "[NL] Facial Animation - WIP",
+        "FacialAnimation"
+      ],
+      "Namespaces": [
+        "FacialAnimation",
+        "NLCommon"
+      ],
+      "DefTypes": [
+        "FacialAnimation.FaceAnimationDef",
+        "FacialAnimation.LidTypeDef",
+        "FacialAnimation.EyeballTypeDef",
+        "FacialAnimation.BrowShapeDef",
+        "FacialAnimation.SkinTypeDef",
+        "FacialAnimation.HeadTypeDef",
+        "FacialAnimation.MouthShapeDef",
+        "FacialAnimation.LidShapeDef",
+        "FacialAnimation.HeadShapeDef",
+        "FacialAnimation.EmotionShapeDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 435,
+      "ExpansionTerms": [
+        "FacialAnimation",
+        "NLCommon",
+        "FacialAnimation.FaceAnimationDef",
+        "FacialAnimation.LidTypeDef",
+        "FacialAnimation.EyeballTypeDef",
+        "FacialAnimation.BrowShapeDef",
+        "FacialAnimation.SkinTypeDef",
+        "FacialAnimation.HeadTypeDef",
+        "FacialAnimation.MouthShapeDef",
+        "FacialAnimation.LidShapeDef",
+        "FacialAnimation.HeadShapeDef",
+        "FacialAnimation.EmotionShapeDef"
+      ]
+    },
+    {
+      "Dir": "Dynamic Trade Interface",
+      "Aliases": [
+        "Dynamic Trade Interface"
+      ],
+      "Namespaces": [
+        "DynamicTradeInterface.UserInterface.Columns",
+        "DynamicTradeInterface.UserInterface",
+        "DynamicTradeInterface.InterfaceComponents.TableBox",
+        "DynamicTradeInterface.InterfaceComponents",
+        "DynamicTradeInterface.Mod",
+        "DynamicTradeInterface.UserInterface.Columns.ColumnExtraIconTypes",
+        "DynamicTradeInterface.InterfaceComponents.TreeBox",
+        "DynamicTradeInterface.Collections"
+      ],
+      "DefTypes": [
+        "DynamicTradeInterface.Defs.TradeColumnDef",
+        "DynamicTradeInterface.Defs.MoreIconsDef",
+        "DynamicTradeInterface.Defs.TradeValidationDef"
+      ],
+      "DefNamePrefixes": [
+        "DTI_"
+      ],
+      "ChunkCount": 401,
+      "ExpansionTerms": [
+        "DynamicTradeInterface.UserInterface.Columns",
+        "DynamicTradeInterface.UserInterface",
+        "DynamicTradeInterface.InterfaceComponents.TableBox",
+        "DynamicTradeInterface.InterfaceComponents",
+        "DynamicTradeInterface.Mod",
+        "DynamicTradeInterface.UserInterface.Columns.ColumnExtraIconTypes",
+        "DynamicTradeInterface.InterfaceComponents.TreeBox",
+        "DynamicTradeInterface.Collections",
+        "DynamicTradeInterface.Defs.TradeColumnDef",
+        "DynamicTradeInterface.Defs.MoreIconsDef",
+        "DynamicTradeInterface.Defs.TradeValidationDef",
+        "DTI"
+      ]
+    },
+    {
+      "Dir": "Pick Up And Haul",
+      "Aliases": [
+        "Pick Up And Haul",
+        "PickUpAndHaul"
+      ],
+      "Namespaces": [
+        "PickUpAndHaul",
+        "IHoldMultipleThings"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 399,
+      "ExpansionTerms": [
+        "PickUpAndHaul",
+        "IHoldMultipleThings"
+      ]
+    },
+    {
+      "Dir": "\u8D85\u51E1\u4EFF\u751F\u4F53\u62D3\u5C55",
+      "Aliases": [
+        "\u8D85\u51E1\u4EFF\u751F\u4F53\u62D3\u5C55",
+        "LTS_Implants"
+      ],
+      "Namespaces": [
+        "QW.ArchotechImplantsExpanded.com",
+        "LTS_Implants",
+        "QW.ArchotechImplantsExpanded"
+      ],
+      "DefTypes": [
+        "RecipeDef",
+        "StatDef",
+        "AbilityDef",
+        "EffecterDef",
+        "AnimationDef",
+        "TraderKindDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 282,
+      "ExpansionTerms": [
+        "QW.ArchotechImplantsExpanded.com",
+        "LTS_Implants",
+        "QW.ArchotechImplantsExpanded",
+        "RecipeDef",
+        "StatDef",
+        "AbilityDef",
+        "EffecterDef",
+        "AnimationDef",
+        "TraderKindDef"
+      ]
+    },
+    {
+      "Dir": "\u6218\u4E89\u7F6A\u884C2\uFF08War Crimes Expanded 2 Core (Updated)\uFF09",
+      "Aliases": [
+        "\u6218\u4E89\u7F6A\u884C2\uFF08War Crimes Expanded 2 Core (Updated)\uFF09",
+        "\u6218\u4E89\u7F6A\u884C2",
+        "War Crimes Expanded 2 Core",
+        "Updated",
+        "WarCrimesExpanded2"
+      ],
+      "Namespaces": [
+        "WarCrimesExpanded2"
+      ],
+      "DefTypes": [
+        "RecipeDef",
+        "PreceptDef",
+        "ResearchProjectDef",
+        "DamageDef",
+        "HistoryEventDef",
+        "ThingCategoryDef",
+        "ResearchTabDef",
+        "SurgeryOutcomeEffectDef",
+        "IssueDef",
+        "TipSetDef"
+      ],
+      "DefNamePrefixes": [
+        "WCE2_"
+      ],
+      "ChunkCount": 237,
+      "ExpansionTerms": [
+        "WarCrimesExpanded2",
+        "RecipeDef",
+        "PreceptDef",
+        "ResearchProjectDef",
+        "DamageDef",
+        "HistoryEventDef",
+        "ThingCategoryDef",
+        "ResearchTabDef",
+        "SurgeryOutcomeEffectDef",
+        "IssueDef",
+        "TipSetDef",
+        "WCE2"
+      ]
+    },
+    {
+      "Dir": "WVC\u673A\u68B0\u65CF\u7BA1\u7406\uFF08WVC - Work Modes\uFF09",
+      "Aliases": [
+        "WVC\u673A\u68B0\u65CF\u7BA1\u7406\uFF08WVC - Work Modes\uFF09",
+        "WVC\u673A\u68B0\u65CF\u7BA1\u7406",
+        "WVC - Work Modes",
+        "WVC_WorkModes"
+      ],
+      "Namespaces": [
+        "WVC_WorkModes",
+        "WVC_WorkModes.Odyssey"
+      ],
+      "DefTypes": [
+        "MechWorkModeDef",
+        "RoomRoleDef",
+        "ConceptDef"
+      ],
+      "DefNamePrefixes": [
+        "WVC_"
+      ],
+      "ChunkCount": 232,
+      "ExpansionTerms": [
+        "WVC_WorkModes",
+        "WVC_WorkModes.Odyssey",
+        "MechWorkModeDef",
+        "RoomRoleDef",
+        "ConceptDef",
+        "WVC"
+      ]
+    },
+    {
+      "Dir": "RunAndGun - Continued\uFF08run and gun\uFF09",
+      "Aliases": [
+        "RunAndGun - Continued\uFF08run and gun\uFF09",
+        "RunAndGun - Continued",
+        "run and gun",
+        "RunAndGun"
+      ],
+      "Namespaces": [
+        "RunAndGun",
+        "RunAndGun.Utilities",
+        "RunAndGun.Harmony"
+      ],
+      "DefTypes": [
+        "HugsLib.UpdateFeatureDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 188,
+      "ExpansionTerms": [
+        "RunAndGun",
+        "RunAndGun.Utilities",
+        "RunAndGun.Harmony",
+        "HugsLib.UpdateFeatureDef"
+      ]
+    },
+    {
+      "Dir": "Stack gap",
+      "Aliases": [
+        "Stack gap",
+        "StorageUpperBound"
+      ],
+      "Namespaces": [
+        "StorageUpperBound"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 162,
+      "ExpansionTerms": [
+        "StorageUpperBound"
+      ]
+    },
+    {
+      "Dir": "Visual Exceptions",
+      "Aliases": [
+        "Visual Exceptions",
+        "VisualExceptions"
+      ],
+      "Namespaces": [
+        "VisualExceptions",
+        "Brrainz"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 150,
+      "ExpansionTerms": [
+        "VisualExceptions",
+        "Brrainz"
+      ]
+    },
+    {
+      "Dir": "Gene Fabrication",
+      "Aliases": [
+        "Gene Fabrication"
+      ],
+      "Namespaces": [
+        "GeneFabrication.UI",
+        "GeneFabrication.Core",
+        "GeneFabrication.Core.Config",
+        "GeneFabrication.Patches"
+      ],
+      "DefTypes": [
+        "ResearchProjectDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 141,
+      "ExpansionTerms": [
+        "GeneFabrication.UI",
+        "GeneFabrication.Core",
+        "GeneFabrication.Core.Config",
+        "GeneFabrication.Patches",
+        "ResearchProjectDef"
+      ]
+    },
+    {
+      "Dir": "AB\u0027s Head Apparel Tweaker",
+      "Aliases": [
+        "AB\u0027s Head Apparel Tweaker",
+        "HeadApparelTweaker"
+      ],
+      "Namespaces": [
+        "HeadApparelTweaker",
+        "ABEasyLib.ABCache",
+        "ABEasyLib.ABExtensions",
+        "ABEasyLib"
+      ],
+      "DefTypes": [
+        "HeadApparelTweaker.HeadLayerListDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 140,
+      "ExpansionTerms": [
+        "HeadApparelTweaker",
+        "ABEasyLib.ABCache",
+        "ABEasyLib.ABExtensions",
+        "ABEasyLib",
+        "HeadApparelTweaker.HeadLayerListDef"
+      ]
+    },
+    {
+      "Dir": "\u81EA\u5B9A\u4E49\u4EFB\u52A1\u6846\u67B6\uFF08Custom Quest Framework\uFF09",
+      "Aliases": [
+        "\u81EA\u5B9A\u4E49\u4EFB\u52A1\u6846\u67B6\uFF08Custom Quest Framework\uFF09",
+        "\u81EA\u5B9A\u4E49\u4EFB\u52A1\u6846\u67B6",
+        "Custom Quest Framework",
+        "CQFBillLIbrary"
+      ],
+      "Namespaces": [
+        "CQFBillLIbrary",
+        "CQFAndRS"
+      ],
+      "DefTypes": [
+        "QuestEditor_Library.PawnModDef",
+        "WorldObjectDef",
+        "GenStepDef",
+        "MapGeneratorDef",
+        "DesignationDef",
+        "DutyDef",
+        "DrawStyleDef",
+        "TerrainDef",
+        "SitePartDef",
+        "ScenPartDef"
+      ],
+      "DefNamePrefixes": [
+        "QE_",
+        "CQF_"
+      ],
+      "ChunkCount": 125,
+      "ExpansionTerms": [
+        "CQFBillLIbrary",
+        "CQFAndRS",
+        "QuestEditor_Library.PawnModDef",
+        "WorldObjectDef",
+        "GenStepDef",
+        "MapGeneratorDef",
+        "DesignationDef",
+        "DutyDef",
+        "DrawStyleDef",
+        "TerrainDef",
+        "SitePartDef",
+        "ScenPartDef",
+        "QE",
+        "CQF"
+      ]
+    },
+    {
+      "Dir": "OgreStack\uFF08ogre\uFF09",
+      "Aliases": [
+        "OgreStack\uFF08ogre\uFF09",
+        "OgreStack",
+        "ogre"
+      ],
+      "Namespaces": [
+        "OgreStack.Support",
+        "OgreStack",
+        "OgreStack.PersistentData"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 108,
+      "ExpansionTerms": [
+        "OgreStack.Support",
+        "OgreStack",
+        "OgreStack.PersistentData"
+      ]
+    },
+    {
+      "Dir": "\u9762\u90E8\u52A8\u753B-Experimentals\uFF08[NL] Facial Animation - Experimentals\uFF09",
+      "Aliases": [
+        "\u9762\u90E8\u52A8\u753B-Experimentals\uFF08[NL] Facial Animation - Experimentals\uFF09",
+        "\u9762\u90E8\u52A8\u753B-Experimentals",
+        "[NL] Facial Animation - Experimentals"
+      ],
+      "Namespaces": [],
+      "DefTypes": [
+        "FacialAnimation.FaceAnimationDef",
+        "FacialAnimation.LidTypeDef",
+        "FacialAnimation.EyeballTypeDef",
+        "FacialAnimation.SkinTypeDef",
+        "FacialAnimation.MouthShapeDef",
+        "FacialAnimation.MouthTypeDef",
+        "FacialAnimation.HeadTypeDef",
+        "FacialAnimation.BrowTypeDef",
+        "FacialAnimation.EmotionShapeDef",
+        "FacialAnimation.LidOptionShapeDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 93,
+      "ExpansionTerms": [
+        "FacialAnimation.FaceAnimationDef",
+        "FacialAnimation.LidTypeDef",
+        "FacialAnimation.EyeballTypeDef",
+        "FacialAnimation.SkinTypeDef",
+        "FacialAnimation.MouthShapeDef",
+        "FacialAnimation.MouthTypeDef",
+        "FacialAnimation.HeadTypeDef",
+        "FacialAnimation.BrowTypeDef",
+        "FacialAnimation.EmotionShapeDef",
+        "FacialAnimation.LidOptionShapeDef"
+      ]
+    },
+    {
+      "Dir": "\u8000\u6591\u5C4F\u853D\uFF08RT Solar Flare Shield\uFF09",
+      "Aliases": [
+        "\u8000\u6591\u5C4F\u853D\uFF08RT Solar Flare Shield\uFF09",
+        "\u8000\u6591\u5C4F\u853D",
+        "RT Solar Flare Shield",
+        "RT_SolarFlareShield"
+      ],
+      "Namespaces": [
+        "RT_SolarFlareShield"
+      ],
+      "DefTypes": [
+        "ResearchTabDef",
+        "ResearchProjectDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 68,
+      "ExpansionTerms": [
+        "RT_SolarFlareShield",
+        "ResearchTabDef",
+        "ResearchProjectDef"
+      ]
+    },
+    {
+      "Dir": "Search and Destroy (Continued)\uFF08search and destroy\uFF09",
+      "Aliases": [
+        "Search and Destroy (Continued)\uFF08search and destroy\uFF09",
+        "Search and Destroy",
+        "Continued",
+        "SearchAndDestroy"
+      ],
+      "Namespaces": [
+        "SearchAndDestroy",
+        "SearchAndDestroy.Harmony",
+        "SearchAndDestroy.Storage"
+      ],
+      "DefTypes": [
+        "DutyDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 64,
+      "ExpansionTerms": [
+        "SearchAndDestroy",
+        "SearchAndDestroy.Harmony",
+        "SearchAndDestroy.Storage",
+        "DutyDef"
+      ]
+    },
+    {
+      "Dir": "Dev In Your Language",
+      "Aliases": [
+        "Dev In Your Language",
+        "DevInYourLanguage"
+      ],
+      "Namespaces": [
+        "DevInYourLanguage"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 53,
+      "ExpansionTerms": [
+        "DevInYourLanguage"
+      ]
+    },
+    {
+      "Dir": "\u8BFE\u684C\uFF08Learning Desk\uFF09",
+      "Aliases": [
+        "\u8BFE\u684C\uFF08Learning Desk\uFF09",
+        "Learning Desk",
+        "LearningDesk"
+      ],
+      "Namespaces": [
+        "LearningDesk"
+      ],
+      "DefTypes": [
+        "RecipeDef",
+        "WorkTypeDef"
+      ],
+      "DefNamePrefixes": [],
+      "ChunkCount": 36,
+      "ExpansionTerms": [
+        "LearningDesk",
+        "RecipeDef",
+        "WorkTypeDef"
+      ]
+    },
+    {
+      "Dir": "Better GC\uFF1A Mothballed and World Pawns\uFF08BetterGC\uFF09",
+      "Aliases": [
+        "Better GC\uFF1A Mothballed and World Pawns\uFF08BetterGC\uFF09",
+        "Better GC\uFF1A Mothballed and World Pawns",
+        "BetterGC"
+      ],
+      "Namespaces": [
+        "MothballedAndDeadPawns"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 24,
+      "ExpansionTerms": [
+        "MothballedAndDeadPawns"
+      ]
+    },
+    {
+      "Dir": "\u5F3A\u5236\u70AE\u5854\u653B\u51FB\uFF08All Turrets Can Set Forced Target (Continued)\uFF09",
+      "Aliases": [
+        "\u5F3A\u5236\u70AE\u5854\u653B\u51FB\uFF08All Turrets Can Set Forced Target (Continued)\uFF09",
+        "\u5F3A\u5236\u70AE\u5854\u653B\u51FB",
+        "All Turrets Can Set Forced Target",
+        "Continued"
+      ],
+      "Namespaces": [
+        "BaalEvan.AllTurretsCanSetForcedTarget"
+      ],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 13,
+      "ExpansionTerms": [
+        "BaalEvan.AllTurretsCanSetForcedTarget"
+      ]
+    },
+    {
+      "Dir": "Crafting Table",
+      "Aliases": [
+        "Crafting Table"
+      ],
+      "Namespaces": [],
+      "DefTypes": [],
+      "DefNamePrefixes": [],
+      "ChunkCount": 2,
+      "ExpansionTerms": []
+    }
+  ]
+}

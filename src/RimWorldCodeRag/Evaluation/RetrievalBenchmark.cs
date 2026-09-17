@@ -100,6 +100,8 @@ public static class RetrievalBenchmark
             ? FusionMode.Rrf
             : FusionMode.WeightedSum;
         var (lexicalWeight, semanticWeight) = ParseWeights(GetOrDefault(options, "weights", "0.5,0.5"));
+        var modExpansion = ParseModExpansion(GetOrDefault(options, "mod-expand", "none"));
+        var modPathBoost = ParseDouble(options, "mod-boost", 0.0);
 
         var queries = LoadQueries(queriesPath);
         if (queries.Count == 0)
@@ -138,7 +140,9 @@ public static class RetrievalBenchmark
             UseSemanticScoringOnly = !useHybrid,
             LexicalWeight = lexicalWeight,
             SemanticWeight = semanticWeight,
-            Fusion = fusion
+            Fusion = fusion,
+            ModExpansion = modExpansion,
+            ModPathBoost = modPathBoost
         };
 
         var outcomes = new List<QueryOutcome>();
@@ -234,6 +238,8 @@ public static class RetrievalBenchmark
             dedupeBySymbolId = !noDedupe,
             useSemanticScoringOnly = !useHybrid,
             fusion = useHybrid ? fusion.ToString() : "semantic-only",
+            modExpansion = modExpansion.ToString(),
+            modPathBoost,
             lexicalWeight = useHybrid ? lexicalWeight : 0,
             semanticWeight = useHybrid ? semanticWeight : 1,
             maxResults,
@@ -692,6 +698,20 @@ public static class RetrievalBenchmark
 
     private static int ParseInt(Dictionary<string, string> options, string key, int fallback)
         => options.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) ? parsed : fallback;
+
+    private static double ParseDouble(Dictionary<string, string> options, string key, double fallback)
+        => options.TryGetValue(key, out var value) && double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : fallback;
+
+    /// <summary>Parse "--mod-expand none|lexical|both".</summary>
+    private static ModExpansionMode ParseModExpansion(string value) => value.ToLowerInvariant() switch
+    {
+        "none" or "off" or "false" => ModExpansionMode.None,
+        "lexical" or "lex" => ModExpansionMode.Lexical,
+        "both" or "on" or "true" => ModExpansionMode.Both,
+        _ => throw new InvalidOperationException($"--mod-expand expects none|lexical|both but got '{value}'.")
+    };
 
     /// <summary>Parse "--weights 0.5,0.5" into (lexical, semantic).</summary>
     private static (double Lexical, double Semantic) ParseWeights(string value)

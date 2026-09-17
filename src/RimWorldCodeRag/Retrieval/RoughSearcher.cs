@@ -33,6 +33,7 @@ public sealed class RoughSearcher : IDisposable
     private readonly VectorIndex _vectorIndex;
     private readonly IQueryEmbeddingGenerator _queryEmbeddingGenerator;
     private readonly PathExclusionFilter _exclusionFilter;
+    private readonly ModCatalog _modCatalog;
     private readonly ResultCache _resultCache = new(200);
 
     public RoughSearcher(RoughSearchConfig config)
@@ -41,6 +42,7 @@ public sealed class RoughSearcher : IDisposable
         _config.Validate();
 
         _exclusionFilter = _config.ExclusionFilter ?? PathExclusionFilter.LoadForIndex(_config.VectorIndexPath);
+        _modCatalog = _config.ModCatalog ?? ModCatalog.LoadForIndex(_config.VectorIndexPath);
 
         _directory = FSDirectory.Open(_config.LuceneIndexPath);
         _reader = DirectoryReader.Open(_directory);
@@ -98,6 +100,78 @@ public sealed class RoughSearcher : IDisposable
         return merged;
     }
 
+    /// <summary>True when the chunk's path lies inside one of the named mods' directories.</summary>
+    private static bool IsUnderAnyMod(string path, IReadOnlyList<string> modDirs)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        foreach (var dir in modDirs)
+        {
+            if (path.Contains($"{Path.DirectorySeparatorChar}{dir}{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private ModExpansion BuildExpansion(string query, ResolvedOptions opts)
+    {
+        if (_modCatalog.IsEmpty || (opts.ModExpansion == ModExpansionMode.None && opts.ModPathBoost <= 0))
+        {
+            return new ModExpansion(query, query, Array.Empty<string>());
+        }
+
+        var mods = _modCatalog.Detect(query, opts.MaxModMatches);
+        if (mods.Count == 0)
+        {
+            return new ModExpansion(query, query, Array.Empty<string>());
+        }
+
+        var modDirs = mods.Select(m => m.Dir).ToList();
+
+        if (opts.ModExpansion == ModExpansionMode.None)
+        {
+            Console.Error.WriteLine($"[debug] mod-boost: {string.Join(", ", modDirs)} (+{opts.ModPathBoost:F2})");
+            return new ModExpansion(query, query, modDirs);
+        }
+
+        var terms = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var mod in mods)
+        {
+            foreach (var term in mod.ExpansionTerms)
+            {
+                if (terms.Count >= opts.MaxExpansionTerms)
+                {
+                    break;
+                }
+
+                if (!string.IsNullOrWhiteSpace(term) && seen.Add(term))
+                {
+                    terms.Add(term);
+                }
+            }
+        }
+
+        if (terms.Count == 0)
+        {
+            return new ModExpansion(query, query, modDirs);
+        }
+
+        var expanded = $"{query} {string.Join(' ', terms)}";
+        var embeddingQuery = opts.ModExpansion == ModExpansionMode.Both ? expanded : query;
+        Console.Error.WriteLine($"[debug] mod-expansion: {string.Join(", ", modDirs)} (+{terms.Count} terms, mode={opts.ModExpansion})");
+
+        return new ModExpansion(expanded, embeddingQuery, modDirs);
+    }
+
+    private readonly record struct ModExpansion(string LexicalQuery, string EmbeddingQuery, IReadOnlyList<string> Mods);
+
     private static string BuildCacheKey(string query, ResolvedOptions opts)
         => string.Join('\u0001',
             query,
@@ -108,6 +182,8 @@ public sealed class RoughSearcher : IDisposable
             opts.DedupeBySymbolId.ToString(),
             opts.UseSemanticScoringOnly.ToString(),
             opts.Fusion.ToString(),
+            opts.ModExpansion.ToString(),
+            opts.ModPathBoost.ToString("F4", System.Globalization.CultureInfo.InvariantCulture),
             opts.LexicalWeight.ToString("F4", System.Globalization.CultureInfo.InvariantCulture),
             opts.SemanticWeight.ToString("F4", System.Globalization.CultureInfo.InvariantCulture));
 
@@ -144,11 +220,12 @@ public sealed class RoughSearcher : IDisposable
         ResolvedOptions opts,
         CancellationToken cancellationToken)
     {
+        var expansion = BuildExpansion(query, opts);
+
         // Dual-path retrieval: run lexical and full-corpus semantic search in parallel.
         // This ensures that items missed by BM25 can still be found by vector similarity.
-        var lexicalTask = Task.Run(() => SearchLexical(query, opts.LexicalCandidates, opts.Kind), cancellationToken);
-        var embeddingValueTask = _queryEmbeddingGenerator.EmbedAsync(query, cancellationToken);
-
+        var lexicalTask = Task.Run(() => SearchLexical(expansion.LexicalQuery, opts.LexicalCandidates, opts.Kind), cancellationToken);
+        var embeddingValueTask = _queryEmbeddingGenerator.EmbedAsync(expansion.EmbeddingQuery, cancellationToken);
         // ValueTask → Task so we can await both in parallel
         var embeddingTask = embeddingValueTask.AsTask();
         await Task.WhenAll(lexicalTask, embeddingTask).ConfigureAwait(false);
@@ -192,13 +269,29 @@ public sealed class RoughSearcher : IDisposable
             var scores = new float[allEntries.Count];
             var dim = queryVector.Length;
 
+            // Metadata boost: when the query names a mod, its own chunks get a bonus *before* the
+            // top-N cut, so a chunk whose cosine is mediocre but which is unambiguously inside the
+            // named mod still reaches the candidate pool. This is the fix for the measured
+            // "query says Humanoid Alien Races, code says AlienRace" miss — unlike lexical query
+            // expansion it cannot dilute anything.
+            var modDirs = expansion.Mods;
+            var modBoost = modDirs.Count > 0 ? (float)opts.ModPathBoost : 0f;
+
             Parallel.ForEach(candidateIndices, i =>
             {
                 var entry = allEntries[i];
-                if (entry.Vector.Length == dim)
+                if (entry.Vector.Length != dim)
                 {
-                    scores[i] = DotProduct(queryVector, entry.Vector);
+                    return;
                 }
+
+                var score = DotProduct(queryVector, entry.Vector);
+                if (modBoost > 0f && IsUnderAnyMod(entry.Path, modDirs))
+                {
+                    score += modBoost;
+                }
+
+                scores[i] = score;
             });
 
             // Take top candidates by score
@@ -234,7 +327,11 @@ public sealed class RoughSearcher : IDisposable
             o.UseSemanticScoringOnly ?? _config.UseSemanticScoringOnly,
             o.LexicalWeight ?? _config.LexicalWeight,
             o.SemanticWeight ?? _config.SemanticWeight,
-            o.Fusion ?? _config.Fusion);
+            o.Fusion ?? _config.Fusion,
+            o.ModExpansion ?? _config.ModExpansion,
+            o.ModPathBoost ?? _config.ModPathBoost,
+            o.MaxModMatches ?? _config.MaxModMatches,
+            o.MaxExpansionTerms ?? _config.MaxExpansionTerms);
     }
 
     private readonly record struct ResolvedOptions(
@@ -246,7 +343,11 @@ public sealed class RoughSearcher : IDisposable
         bool UseSemanticScoringOnly,
         double LexicalWeight,
         double SemanticWeight,
-        FusionMode Fusion);
+        FusionMode Fusion,
+        ModExpansionMode ModExpansion,
+        double ModPathBoost,
+        int MaxModMatches,
+        int MaxExpansionTerms);
 
     private static float DotProduct(float[] a, ReadOnlyMemory<float> b)
     {

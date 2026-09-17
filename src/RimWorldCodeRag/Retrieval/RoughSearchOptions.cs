@@ -18,6 +18,21 @@ public enum FusionMode
 }
 
 /// <summary>
+/// How a mod named in the query is turned into extra search terms (task 1.6).
+/// </summary>
+public enum ModExpansionMode
+{
+    /// <summary>Use the query verbatim.</summary>
+    None,
+
+    /// <summary>Expand only the lexical (BM25) leg.</summary>
+    Lexical,
+
+    /// <summary>Expand both legs — the embedding input also carries the mod's identifiers.</summary>
+    Both
+}
+
+/// <summary>
 /// Per-request search knobs.
 ///
 /// <para>
@@ -40,6 +55,10 @@ public sealed record RoughSearchOptions
     public double? LexicalWeight { get; init; }
     public double? SemanticWeight { get; init; }
     public FusionMode? Fusion { get; init; }
+    public ModExpansionMode? ModExpansion { get; init; }
+    public double? ModPathBoost { get; init; }
+    public int? MaxModMatches { get; init; }
+    public int? MaxExpansionTerms { get; init; }
 
     public static RoughSearchOptions FromConfig(RoughSearchConfig config) => new()
     {
@@ -51,6 +70,10 @@ public sealed record RoughSearchOptions
         UseSemanticScoringOnly = config.UseSemanticScoringOnly,
         LexicalWeight = config.LexicalWeight,
         SemanticWeight = config.SemanticWeight,
-        Fusion = config.Fusion
+        Fusion = config.Fusion,
+        ModExpansion = config.ModExpansion,
+        ModPathBoost = config.ModPathBoost,
+        MaxModMatches = config.MaxModMatches,
+        MaxExpansionTerms = config.MaxExpansionTerms
     };
 }
