@@ -23,6 +23,7 @@ public sealed class IndexingPipeline
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         _metadataStore.EnsureLoaded();
+        ResolveExclusionFilter();
         HandleForceRebuild();
 
         var chunker = new Chunker(_config, _metadataStore);
@@ -152,6 +153,36 @@ public sealed class IndexingPipeline
             Console.Write($"\r[index] Generated {processed}/{chunks.Count} embeddings...");
         }
         Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Resolve the shared path-exclusion rules, materialize the default <c>exclude.json</c>
+    /// when missing, and force a Lucene rebuild whenever the effective rules change.
+    /// Lucene documents are updated in place by itemId, so chunks that are newly excluded
+    /// would otherwise linger in the index forever.
+    /// </summary>
+    private void ResolveExclusionFilter()
+    {
+        var indexRoot = PathExclusionFilter.ResolveIndexRoot(_config.VectorIndexPath);
+
+        var created = PathExclusionFilter.EnsureFile(indexRoot);
+        if (created is not null)
+        {
+            Console.WriteLine($"[index] Created default exclusion file: {created}");
+        }
+
+        var filter = _config.ExclusionFilter ?? PathExclusionFilter.LoadForIndex(_config.VectorIndexPath);
+        Console.WriteLine($"[index] {filter.Describe()} (signature {filter.Signature})");
+
+        var signaturePath = Path.Combine(_config.MetadataPath, "exclude.sig");
+        var previous = File.Exists(signaturePath) ? File.ReadAllText(signaturePath).Trim() : null;
+        if (!string.Equals(previous, filter.Signature, StringComparison.Ordinal))
+        {
+            Console.WriteLine($"[index] Exclusion rules changed ({(previous ?? "<none>")} -> {filter.Signature}); forcing Lucene rebuild.");
+            _config.ForceRebuildLucene = true;
+            Directory.CreateDirectory(_config.MetadataPath);
+            File.WriteAllText(signaturePath, filter.Signature);
+        }
     }
 
     private void HandleForceRebuild()

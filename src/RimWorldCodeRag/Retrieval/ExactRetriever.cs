@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Lucene.Net.Documents;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
 using Lucene.Net.Store;
@@ -29,17 +30,22 @@ public sealed class ExactRetriever : IDisposable
         _searcher = new IndexSearcher(_reader);
     }
 
-    public ExactRetrievalResult? GetItem(string itemId, int maxLines = 0)
+    /// <summary>
+    /// Look up a chunk by exact item id, falling back to an exact symbol id.
+    /// <para>
+    /// <c>rough_search</c> hands out item ids, but <c>get_uses</c> / <c>get_used_by</c> only expose
+    /// symbol ids — without the fallback those results are unreadable.
+    /// </para>
+    /// </summary>
+    public ExactRetrievalResult? GetItem(string itemIdOrSymbolId, int maxLines = 0)
     {
-        var query = new TermQuery(new Term(LuceneWriter.FieldItemId, itemId));
-        var hits = _searcher.Search(query, 1);
-
-        if (hits.TotalHits == 0)
+        var doc = FindDocument(itemIdOrSymbolId);
+        if (doc is null)
         {
             return null;
         }
 
-        var doc = _searcher.Doc(hits.ScoreDocs[0].Doc);
+        var itemId = doc.Get(LuceneWriter.FieldItemId) ?? itemIdOrSymbolId;
         var filePath = doc.Get(LuceneWriter.FieldPath);
         var spanStartField = doc.GetField(LuceneWriter.FieldSpanStart);
         var spanEndField = doc.GetField(LuceneWriter.FieldSpanEnd);
@@ -131,6 +137,21 @@ public sealed class ExactRetriever : IDisposable
             TotalLines = lines.Length,
             DisplayedLines = displayCode.Split('\n').Length
         };
+    }
+
+    /// <summary>True when the id (item id or symbol id) resolves to a live document.</summary>
+    public bool Exists(string itemIdOrSymbolId) => FindDocument(itemIdOrSymbolId) is not null;
+
+    private Document? FindDocument(string itemIdOrSymbolId)
+    {
+        var byItemId = _searcher.Search(new TermQuery(new Term(LuceneWriter.FieldItemId, itemIdOrSymbolId)), 1);
+        if (byItemId.TotalHits > 0)
+        {
+            return _searcher.Doc(byItemId.ScoreDocs[0].Doc);
+        }
+
+        var bySymbolId = _searcher.Search(new TermQuery(new Term(LuceneWriter.FieldSymbolId, itemIdOrSymbolId)), 1);
+        return bySymbolId.TotalHits > 0 ? _searcher.Doc(bySymbolId.ScoreDocs[0].Doc) : null;
     }
 
     //多个集中提取，这个暂时没用上，先做个实现，看看效果再说

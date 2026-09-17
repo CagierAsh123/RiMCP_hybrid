@@ -1,4 +1,4 @@
-# RiMCP 代码 RAG —— 现状评估与升级建议
+﻿# RiMCP 代码 RAG —— 现状评估与升级建议
 
 - 评估日期：2026-09-16
 - 范围：`B:\RiMCP_hybrid-master\RiMCP_hybrid-master`（仅评估，**未改动任何代码**）
@@ -17,7 +17,7 @@
 | 2 | `UseSemanticScoringOnly = true` —— **混合检索被关掉了** | 精确标识符/Def 名查询丧失 BM25 精确优势 | 易 |
 | 3 | 嵌入模型 e5-base-v2（2022 年，512 token） | 中文 + 代码标识符召回弱 | 中（要重嵌入一次） |
 
-另外：**联网搜索与 GitHub 搜索完全没有实现**（不是坏了、不是没配），需要从零加。
+另外：联网搜索**不属于本项目范围**（已确认移交 DeepSeek Harness 侧，见 §5）。
 
 ---
 
@@ -109,7 +109,7 @@ else {
 
 ---
 
-## 3. 联网搜索 / GitHub 搜索 —— 核查结论
+## 3. 联网搜索 / GitHub 搜索 —— 核查结论（**不在本项目范围，见 §5**）
 
 **结论：两者都不存在。** 不是配置缺失、不是坏了、也不是被开关关掉——**代码里从来没有过**。
 
@@ -124,7 +124,7 @@ else {
 - WebApp 的 16 个端点全部是本地检索/索引/配置/模型管理（`/api/search`、`/api/item`、`/api/graph/*`、`/api/index/*`、`/api/models/*`）
 - 唯一的出网能力是**可选的远程嵌入 API**（`--api-key` + `--model-name`，v1.1.0 加的），与搜索无关
 
-→ 想加必须从零做；可行方案与取舍见 §5。
+→ **该能力已确认由 DeepSeek Harness 侧提供，不在 RiMCP 范围内（见 §5）**，故本文不再讨论实现方案。
 
 ---
 
@@ -257,127 +257,30 @@ else {
 | **P1** | MCP SDK 2.2.0 + SSE | 2~3 天 | 协议现代化、可远程 |
 | **P2** | 图语义化重建（Roslyn SemanticModel） | 3~5 天 | 图检索准确性 |
 | **P2** | LazyGraphRAG 查询期摘要 | 1~2 周 | 差异化 |
-| **P2** | 联网 / GitHub 搜索（见 §5） | 3~5 天 | 走出本地语料 |
 
 ---
 
-## 5. 联网 / GitHub 搜索方案
+## 5. 联网 / GitHub 搜索 —— **不在本项目范围**
 
-> 本节含两轮调研：**§5.4 是已实测核实的最终结论**（子代理带探针验证），§5.1~5.3 为初稿（保留推理过程，与 §5.4 冲突处以 §5.4 为准）。
+> **结论：本项能力由 DeepSeek Harness（DSH）侧提供，RiMCP 不做。**（2026-09-16 经用户确认后调整范围）
 
-### 5.1 三条候选路线
+**核查结论（保留为事实记录）**：RiMCP 全仓库 grep `github|tavily|brave|serp|duckduckgo|web_search` 零命中
+（唯一 match 是 e5 词表里的 "brave" 词元）；MCP 只暴露 4 个本地检索工具，WebApp 16 个端点全是本地检索/索引/配置。
+即 **"没有联网搜索"不是故障，是这个工具的定位**。
 
-**A. GitHub 代码搜索（官方）**
-- `GET /search/code`：**必须认证**（PAT / GitHub App）；只索引**默认分支**；有 **1000 条结果上限**与**很低的速率限制**（个位数~10 请求/分钟量级）`[待核实]`
-- 查询语法支持 `repo:` / `language:` / `path:` 限定，但**不是真正的正则**；`gh search code` 只是它的 CLI 封装
-- GraphQL `search` 同样受限；**没有任何官方批量导出接口**
-- 第三方替代：
-  - **grep.app** —— 免 key、支持正则、覆盖热门公开仓库，适合"跨仓库找一行代码" `[待核实]`
-  - **Gitingest** —— 把整个仓库转成一个文本块，**适合"我要把这个 mod 的仓库读进来"**（正是我们的场景）
-  - **Sourcegraph** 公共代码搜索 / **DeepWiki** 仓库级问答 —— 公共实例政策常变 `[待核实]`
+**为什么不做**：
+1. RiMCP 的定位是「**本地代码检索/导航**」——出网能力属于 agent 宿主（DSH）的职责，塞进检索器会让它偏离定位
+2. 联网搜索涉及 key 管理、限流、ToS、许可、隐私（查询出网），这些应由宿主统一治理，而不是每个检索器各做一套
+3. RAGFlow 那样的"内置 web 搜索"是**平台**形态才需要的功能（它要自己生成答案）
 
-**B. 通用联网搜索**
-- 需 key 的商业 API：Tavily、Exa、Brave Search、Serper 等，均为 REST/JSON，.NET 侧 `HttpClient` 即可，都面向 agent 场景有免费额度 `[待核实]`
-- 免 key 自托管：**SearXNG**（聚合 Google/Bing/DDG），但要自己维护、有反爬与稳定性风险
-- **已有现成 MCP server 可直接挂**（Tavily / Exa / Brave 官方或社区实现）→ 对本项目**零改动**（见 5.2）
-
-**C. RimWorld 专用数据源**
-- **Steam Workshop**：`ISteamRemoteStorage/GetPublishedFileDetails` 可拿标题、描述、更新时间、依赖（比爬页面稳，需要一个 WebAPI key）
-- **RimWorld Wiki**：MediaWiki API（`api.php?action=query`），查原版机制
-- 本地已有：每个 mod 的 `About.xml` + 刷新过的 mod 源码转储（§ 前面几节）
-
-### 5.2 推荐做法（分两层，先零代码后进项目）
-
-**第一层：零代码，当天可用**
-在 MCP 客户端配置里**再挂一个搜索类 MCP server**（Tavily / Exa / Brave 任选），本项目**一行不用改**。
-- 优点：立刻可用、不引入出网代码、不动索引
-- 缺点：搜索结果**不进本地索引**，无法和 `get_item` 的代码级语义检索联动
-
-**第二层：进项目，3~5 天**
-给 `McpServer` 加两个工具，复用**已有索引管线**：
-
-| 新工具 | 作用 | 实现要点 |
-|---|---|---|
-| `web_search` | 通用联网检索（文档/wiki/论坛） | 调一个搜索 API；结果**不落索引**，只作为上下文返回，并标注"外部来源、可能过时" |
-| `fetch_repo` | 把一个 GitHub/GitLab 仓库拉进本地语料并索引 | 用 Gitingest 或 GitHub tarball API → 落盘到 `B:\rimworld-code\_SourceCode\external\<owner-repo>\` → 跑一次增量 `index` → 之后就能用 `rough_search`/`get_item` 当本地源码检索 |
-
-> 关键设计：外部仓库必须**独立命名空间/路径前缀**，工具返回要**显式标注来源**，
-> 否则模型会把第三方 mod 代码当成原版 API 引用（这正是 §2.4 之外最容易被忽视的污染源）。
-
-### 5.3 风险与限制
-
-1. **成本与限流**：搜索 API 免费额度普遍很小；GitHub code search 速率极低，做不了批量索引
-2. **ToS**：GitHub 明确禁止用爬虫做大规模复制；抓页面要遵守 robots/ToS
-3. **许可**：把第三方 mod 源码下载进**本地**索引只影响本地使用；若要再分发需逐个看许可（本项目自身是 MIT）
-4. **隐私/原则**：联网搜索意味着查询要出网——与"本地优先"的产品定位冲突，建议做成**默认关闭的显式开关**，并在工具描述里告知模型"这是外部信息"
-
-### 5.4 调研核实结果（含本机实测探针，最终结论）
-
-> 标注 **[探针]** 的条目是本机实际发请求验证过的；其余为官方文档引用。
-
-#### (1) GitHub 代码搜索：能查，但很差，不适合当主力
-
-| 方式 | 认证 | 限制 | 覆盖 |
-|---|---|---|---|
-| REST `GET /search/code` | **必须**（[探针] 无 token → `401 Requires authentication`） | **10 req/min、1000 条上限** | **仅默认分支**，大文件/生成文件被排除 |
-| GraphQL `search(type: CODE)` | 必须 | 5000 点/小时 | 同样 1000 条上限 |
-| `gh search code` | 必须 | 同一 API，`--limit ≤1000` | 同上 |
-| BigQuery `bigquery-public-data.github_repos` | GCP 账号 | 1 TB/月免费，超出 ~$6.25/TB | **快照陈旧** |
-| GH Archive | GCP 账号 | — | **只有事件，没有文件内容** |
-
-**没有任何批量/流式接口。** 第三方路线基本都断：
-- **grep.app**（原本免 key 支持正则）：被 Vercel 收购后 API 套上 Security Checkpoint，[探针] 返回 **429 挑战页** → 服务端不可用
-- **Sourcegraph** 公共 API：[探针] `/.api/graphql` 与 `/.api/search/stream` 均 **403 Firewall Block**，且公司重心已转向 Amp
-- **searchcode.com** 文档中的 API 路径 [探针] **404**
-- ✅ 仍可用：**DeepWiki**（[探针] 200，按仓库生成 AI 说明，适合"讲讲这个 mod 仓库"）、**Gitingest**（开源可自托管，仓库→文本摘要，**是摄取工具而非搜索引擎**）
-
-#### (2) 通用联网搜索 API（2026 价格）
-
-| 提供方 | 需 key | 价格 | 备注 |
-|---|---|---|---|
-| **Brave Search** | 是 | **$5/1k 次，每月 $5 免费额度**，50 rps | 独立索引；另有 "LLM context" SKU |
-| **Tavily** | 是 | **1k credits/月免费**，超出 $0.008/credit | search + extract + crawl/map，面 agent 设计 |
-| **Exa** | 是 | 注册送 $20 + 每月 $10 额度；搜索 $7/1k | 神经检索 + 内容抽取 |
-| Serper（Google SERP 代理） | 是 | 2500 次免费，之后 ~$1/1k | 非官方代理 |
-| SerpApi | 是 | 250 次/月免费，50/小时 | 非官方代理 |
-| **Bing Web Search** | — | **已于 2025-08-11 退役** | ⚠ 别在它上面做设计 |
-| Google Programmable Search | 是 | 100 次/天免费，$5/1k，上限 1 万/天 | 需 cx，可限定站点白名单 |
-| DuckDuckGo html/lite | 否 | 免费 | 非官方、会被反爬拦、ToS 不明 |
-| SearXNG 自托管 | 否 | 仅服务器成本 | JSON 输出默认**不对非本机调用开放**，需改 `search.formats` |
-
-#### (3) 现成可挂的 MCP server（本项目零改动即可用）
-
-| Server | 形态 | 许可 |
-|---|---|---|
-| **官方 GitHub MCP** | Go 二进制 + Docker（`ghcr.io/github/github-mcp-server`）/ 远程 `api.githubcopilot.com/mcp/`（[探针] 401，需 OAuth/PAT），含 `search_code` | MIT |
-| **Tavily MCP** | 远程 `mcp.tavily.com/mcp/?tavilyApiKey=...` + npx | MIT |
-| **Brave Search MCP** | `@brave/brave-search-mcp-server` 2.1.3（官方） | MIT |
-| Exa MCP | `exa-mcp-server` 3.4.1 | — |
-| Firecrawl MCP | `firecrawl-mcp` 3.24.0 | MIT |
-
-传输：stdio + **Streamable HTTP**（SSE 已废弃）。.NET 侧 `ModelContextProtocol`（GA 1.0.0 → 现 2.2.0）**自带 client**，所以"让 .NET 服务宿主这些搜索 MCP"是可行路线；但若只用一家，直接 `HttpClient` 打 REST 更省事（避免拖一个 Node 运行时）。
-
-#### (4) 对 RimWorld modding 助手的最优解（**结论已修正**）
-
-| 优先级 | 加什么 | 理由 |
-|---|---|---|
-| **1** | **通用 web 搜索**（Brave 或 Tavily，一个工具） | 边际价值最高：一个工具同时覆盖 Steam 创意工坊页面、mod 的 GitHub README、Reddit/论坛、wiki 镜像 |
-| **2** | **Steam 创意工坊查询** | **`ISteamRemoteStorage/GetPublishedFileDetails/v1` 免 key**（[探针] HTTP 200），直接返回标题/描述/订阅数/更新时间；IPublishedFileService 浏览需要免费 key |
-| 3 | GitHub 代码搜索 | 价值一般（10 req/min + 1000 条上限），而本地索引已覆盖原版反编译源码——**更好的用法是"克隆 mod 仓库 → 喂进现有索引"**，而不是全网搜代码 |
-| 4 | RimWorld Wiki | 内容价值最高但**直连不可行**（见下） |
-
-> 建议落地顺序：`web_search`（Brave/Tavily + 一个 key + 一个 stdio 工具，返回 title/url/snippet）→ 再加**免 key 的 Steam Workshop 查询**作第二个工具。
-
-#### (5) 硬性阻碍（**已实测确认，不要绕**）
-
-1. **直连抓取已死**：`rimworldwiki.com` 的 `/api.php` 与 `/rest.php` 均 [探针] **403 Cloudflare "Just a moment..."**；grep.app API 429 挑战；Sourcegraph 403。→ 只能**经由搜索 API 的抽取结果**间接获取 wiki 内容，别写直连爬虫。
-2. **Bing Search API 已退役**；抓 Google/DDG 违反 ToS → 只能走**有授权的 API**。
-3. **GitHub 限制**：10 req/min、1000 条上限、需 PAT、无流式；API ToS 限制"过度自动化使用"与"再分发 API 数据"。
-4. **许可风险（重要）**：GitHub API 不授予任何代码许可；**绝大多数 RimWorld mod 仓库根本没有 LICENSE 文件**（即默认"保留所有权利"），创意工坊 mod 同样未声明代码许可。→ **可以建本地索引自用，绝不随项目分发抓来的代码**；wiki 文本再发布前要先查其许可页。
-5. **BigQuery 路线**有成本风险（1 TB/月免费额度）且快照陈旧，不适合当实时数据源。
+**调研存档（供 DSH 侧使用，不构成本项目任务）**：
+- `rag-websearch-research-2026.md` —— GitHub 代码搜索（官方 REST `10 req/min`、1000 条上限、无批量接口；
+  grep.app 已被 Vercel 安全网关拦、Sourcegraph 403、RimWorld Wiki 直连被 Cloudflare 403）、
+  web 搜索 API 价格（Brave $5/1k、Tavily 1k credits/月免费…）、Bing Search API 已于 2025-08-11 退役、
+  以及**免 key 的 Steam 创意工坊查询** `ISteamRemoteStorage/GetPublishedFileDetails/v1`（实测 200）
+- 该文件顶部已标注归属：**目标为 DeepSeek Harness，不是 RiMCP**
 
 ---
-
 ## 8. 对标 RAGFlow（社区最火的开源 RAG 平台）
 
 > 考察日期 2026-09-16，依据：`main` 分支 README_zh.md + **实际拉取源码树与关键文件**（不是只看宣传）。
@@ -398,7 +301,7 @@ else {
 | **Agentic RAG** (`rag/advanced_rag/`) | `agentic_rag.py` / `agentic_rag_graph.py` + harness：**`grep_sed_narrow.py`**（grep/sed 式渐进收窄）、`chunk_utils`、`keywords`、`memory`、`orchestrator` | 🔥 **最有价值的一条**：对代码类语料，**渐进式 grep 收窄比向量检索更准**。RiMCP 完全可以加一个 `grep` 工具（对 `_SourceCode` 跑 ripgrep） |
 | **MCP** (`mcp/server`, `mcp/client`) | **双向**：既是 MCP server（把检索暴露给 agent），也是 MCP client（含 `streamable_http_client`，在 agent 内部调外部工具） | RiMCP 只做了 server 半边；作为 client 能挂搜索/其它数据源（正好接 §5） |
 | **记忆** (`memory/`) | query/message 两级记忆，落 ES/Infinity/GaussDB/OceanBase | 对应 §4.1 的"查询缓存"升级版 |
-| **内置联网搜索** (`rag/utils/web_search_conn.py`) | Provider 抽象：**You.com（`KEYLESS_WEB_SEARCH_PROVIDERS`，免 key 可用）**、Tavily、Querit、Serply | 🔥 直接回答 §5：**存在免 key 的搜索后端**（You.com），可作为兜底 provider |
+| **内置联网搜索** (`rag/utils/web_search_conn.py`) | Provider 抽象：You.com（免 key）、Tavily、Querit、Serply | 仅作事实记录：RAGFlow 把联网搜索做进平台；**RiMCP 不做**（见 §5，已移交 DSH） |
 
 ### 8.3 该抄什么 / 不该抄什么
 
@@ -407,7 +310,7 @@ else {
 1. **融合前先归一化**：RAGFlow 用加权和能work，是因为两路分数可比。RiMCP 现在 BM25 与余弦**直接相加**——**先 min-max/z-score 归一化再加权**，比切换成 RRF 改动更小、效果同源（也和作者当年的实验结论不冲突）。
 2. **空结果降级**：hybrid 无命中时自动转 dense-only（RAGFlow 显式做了）。RiMCP 现在是"语义独大"，一旦向量没命中就没有兜底。
 3. **Agentic grep 收窄**：给 MCP 加 `grep`（ripgrep over `_SourceCode`）。对"哪个 Def 用了这个字段""哪个类调了这个 API"这类**字面查询**，比嵌入强得多，且**零 GPU 成本**。
-4. **Provider 抽象**：检索/重排/联网搜索都做成可插拔 provider（你"以后给我写搜索工具"时可以直接照这个形状：You.com 免 key 兜底 / Tavily / Brave 可选）。
+4. **Provider 抽象**：检索/重排做成可插拔 provider（联网搜索不在本项目范围，见 §5）。
 5. **记忆层**：查询→结果缓存（比现在的 100 条 embedding 缓存更进一步）。
 6. **MCP 双向**：RiMCP 作为 MCP **client** 去挂外部搜索/文档 server，比自己在 C# 里实现出网更省事。
 
@@ -424,4 +327,4 @@ else {
 
 - 它解决的是「**把非结构化文档变成可问答知识库**」，RiMCP 解决的是「**精确代码导航**」——不是替代关系。
 - 如果将来要覆盖 wiki / PDF / mod 文档这类语料，**正确姿势是并存**：RiMCP 管代码，RAGFlow 管文档，**在 MCP 层让 agent 同时挂两个 server**（这也是 RAGFlow 自己把 MCP 做成双向的原因）。
-- 对当前 RiMCP，**从 RAGFlow 只取 4 件东西**：归一化融合 + 空结果降级 + agentic grep 收窄 + provider 抽象（含免 key 联网搜索）。其余一律不要碰。
+- 对当前 RiMCP，**从 RAGFlow 只取 3 件东西**：归一化融合 + 空结果降级 + agentic grep 收窄。其余一律不要碰。

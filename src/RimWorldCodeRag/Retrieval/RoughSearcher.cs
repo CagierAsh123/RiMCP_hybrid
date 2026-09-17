@@ -30,11 +30,14 @@ public sealed class RoughSearcher : IDisposable
     private readonly QueryParser _textParser;
     private readonly VectorIndex _vectorIndex;
     private readonly IQueryEmbeddingGenerator _queryEmbeddingGenerator;
+    private readonly PathExclusionFilter _exclusionFilter;
 
     public RoughSearcher(RoughSearchConfig config)
     {
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _config.Validate();
+
+        _exclusionFilter = _config.ExclusionFilter ?? PathExclusionFilter.LoadForIndex(_config.VectorIndexPath);
 
         _directory = FSDirectory.Open(_config.LuceneIndexPath);
         _reader = DirectoryReader.Open(_directory);
@@ -51,7 +54,7 @@ public sealed class RoughSearcher : IDisposable
             DefaultOperator = Operator.OR
         };
 
-        _vectorIndex = VectorIndex.Load(_config.VectorIndexPath);
+        _vectorIndex = VectorIndex.Load(_config.VectorIndexPath, _exclusionFilter);
         _queryEmbeddingGenerator = CreateQueryEmbeddingGenerator();
     }
 
@@ -267,6 +270,11 @@ public sealed class RoughSearcher : IDisposable
                 continue;
             }
 
+            if (_exclusionFilter.IsExcluded(doc.Get(LuceneWriter.FieldPath)))
+            {
+                continue;
+            }
+
             results.Add(new LexicalMatch(itemId, doc, scoreDoc.Score));
         }
 
@@ -292,19 +300,20 @@ public sealed class RoughSearcher : IDisposable
         {
             // Pure semantic ranking: ignore lexical scores completely
             var maxScore = semantic.Count > 0 ? semantic[0].Score : 1f;
-            
-            return semantic
-                .Take(take)
+
+            var ranked = semantic
                 .Select(match =>
                 {
                     var document = FetchDocument(match.Entry.ItemId);
                     if (document is null) return null;
-                    
+
                     return ToResult(match.Entry.ItemId, document, match.Score / maxScore, "semantic");
                 })
                 .Where(result => result is not null)
                 .Select(result => result!)
                 .ToList();
+
+            return FinalizeResults(ranked, take);
         }
 
         // Hybrid scoring (original behavior)
@@ -346,13 +355,82 @@ public sealed class RoughSearcher : IDisposable
             candidate.ComputeFinalScore(MixedBoost, SemanticWeight);
         }
 
-        return candidates
+        var rankedResults = candidates
             .OrderByDescending(kvp => kvp.Value.FinalScore)
-            .Take(take)
             .Select(kvp => ToResultFromCandidate(kvp.Key, kvp.Value))
             .Where(result => result is not null)
             .Select(result => result!)
             .ToList();
+
+        return FinalizeResults(rankedResults, take);
+    }
+
+    /// <summary>
+    /// Read-side post-processing shared by both ranking modes: drop results whose path is
+    /// excluded, then collapse duplicate <c>SymbolId</c> entries (the same mod shipped in two
+    /// folders, a <c>private/</c> copy next to the public one, …).
+    /// </summary>
+    private List<RoughSearchResult> FinalizeResults(List<RoughSearchResult> ranked, int take)
+    {
+        var filtered = new List<RoughSearchResult>(ranked.Count);
+        foreach (var result in ranked)
+        {
+            if (_exclusionFilter.IsExcluded(result.Path))
+            {
+                continue;
+            }
+
+            filtered.Add(result);
+        }
+
+        if (!_config.DedupeBySymbolId)
+        {
+            return filtered.Take(take).ToList();
+        }
+
+        var best = new Dictionary<string, RoughSearchResult>(StringComparer.OrdinalIgnoreCase);
+        foreach (var result in filtered)
+        {
+            var key = string.IsNullOrEmpty(result.SymbolId) ? result.ItemId : result.SymbolId;
+            if (!best.TryGetValue(key, out var current) || IsBetterDuplicate(result, current))
+            {
+                best[key] = result;
+            }
+        }
+
+        return best.Values
+            .OrderByDescending(result => result.Score)
+            .Take(take)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Duplicate priority: non-<c>private/</c> path first, then higher score, then shorter path.
+    /// </summary>
+    private static bool IsBetterDuplicate(RoughSearchResult candidate, RoughSearchResult current)
+    {
+        var candidateRank = DuplicateRank(candidate);
+        var currentRank = DuplicateRank(current);
+        if (candidateRank != currentRank)
+        {
+            return candidateRank < currentRank;
+        }
+
+        if (Math.Abs(candidate.Score - current.Score) > 1e-6)
+        {
+            return candidate.Score > current.Score;
+        }
+
+        return (candidate.Path?.Length ?? int.MaxValue) < (current.Path?.Length ?? int.MaxValue);
+    }
+
+    private static int DuplicateRank(RoughSearchResult result)
+    {
+        var path = result.Path ?? string.Empty;
+        return path.IndexOf("\\private\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+               path.IndexOf("/private/", StringComparison.OrdinalIgnoreCase) >= 0
+            ? 1
+            : 0;
     }
 
     private RoughSearchResult? ToResultFromCandidate(string itemId, Candidate candidate)

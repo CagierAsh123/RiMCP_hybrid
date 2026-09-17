@@ -482,6 +482,12 @@ ENV/
 **/index/graph.nodes.tsv
 **/index/graph.pagerank.tsv
 
+# Rollback copies of the generated index (~1.8 GB each) — must never be committed.
+# `index/exclude.json` deliberately stays tracked: it is configuration, not data.
+**/index.bak/
+**/index.bak.*/
+**/index/*.bak/
+
 # RimWorld specific - EXCLUDE ALL COPYRIGHTED MATERIAL
 RimWorldData/
 **/models/

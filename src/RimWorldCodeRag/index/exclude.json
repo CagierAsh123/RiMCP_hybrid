@@ -1,0 +1,8 @@
+{
+  "_comment": "Paths matching any rule are excluded from index building AND retrieval. Rules are matched case-insensitively against the normalized path (e.g. \\c:\\src\\mod\\file.cs). A rule without path separators is treated as a directory name (\"rjw\" == \"\\rjw\\\"); a rule containing * or ? is a wildcard pattern. Set \"enabled\": false to disable exclusion entirely.",
+  "enabled": true,
+  "exclude": [
+    "\\Develop\\",
+    "\\rjw\\"
+  ]
+}

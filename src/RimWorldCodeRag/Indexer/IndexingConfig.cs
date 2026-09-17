@@ -1,5 +1,7 @@
 namespace RimWorldCodeRag.Indexer;
 
+using RimWorldCodeRag.Common;
+
 public sealed class IndexingConfig
 {
     public required string SourceRoot { get; init; }
@@ -21,6 +23,12 @@ public sealed class IndexingConfig
     public bool ForceRebuildLucene { get; set; }
     public bool ForceRebuildEmbeddings { get; set; }
     public bool ForceRebuildGraph { get; set; }
+
+    /// <summary>
+    /// Path exclusion rules. When null the filter is resolved from
+    /// <c>&lt;index root&gt;\exclude.json</c> (see <see cref="PathExclusionFilter"/>).
+    /// </summary>
+    public PathExclusionFilter? ExclusionFilter { get; init; }
 
     public bool ForceFullRebuild => ForceRebuildLucene && ForceRebuildEmbeddings && ForceRebuildGraph;
 }

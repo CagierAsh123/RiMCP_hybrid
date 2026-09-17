@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using RimWorldCodeRag.Common;
+using RimWorldCodeRag.Evaluation;
 using RimWorldCodeRag.Indexer;
 using RimWorldCodeRag.Retrieval;
 
@@ -31,6 +32,8 @@ public static class Program
                 return RunGetUsedBy(tail);
             case "get-item":
                 return RunGetItem(tail);
+            case "bench":
+                return await RetrievalBenchmark.RunAsync(ParseOptions(tail));
             default:
                 Console.Error.WriteLine($"Unknown command '{command}'.");
                 PrintUsage();
@@ -62,7 +65,18 @@ public static class Program
                 continue;
             }
 
-            result[key] = args[++i];
+            var value = args[++i];
+
+            // Repeated --force flags must accumulate ("--force lucene --force graph"),
+            // otherwise the last one silently wins.
+            if (key.Equals("force", StringComparison.OrdinalIgnoreCase) && result.TryGetValue(key, out var prior))
+            {
+                result[key] = $"{prior},{value}";
+            }
+            else
+            {
+                result[key] = value;
+            }
         }
 
         return result;
@@ -426,6 +440,7 @@ public static class Program
         Console.WriteLine("  RimWorldCodeRag get-uses --symbol <id> [--kind <type>] [--graph <path>]");
         Console.WriteLine("  RimWorldCodeRag get-used-by --symbol <id> [--kind <type>] [--graph <path>]");
         Console.WriteLine("  RimWorldCodeRag get-item --symbol <id> [--max-lines <n>] [--lucene <dir>]");
+        Console.WriteLine("  RimWorldCodeRag bench --queries <file.json> [--out <file.json>] [--compare <file.json>] [--label <name>] [--lucene <dir>] [--vec <dir>] [--embedding-server <url>] [--max-results <n>] [--warmup <n>] [--hybrid] [--no-exclude] [--no-dedupe]");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  index             Build search index from source code and XML Defs");
@@ -433,6 +448,7 @@ public static class Program
         Console.WriteLine("  get-uses          Query symbols that the given symbol uses/references");
         Console.WriteLine("  get-used-by       Query symbols that use/reference the given symbol");
         Console.WriteLine("  get-item          Retrieve full source code for a specific symbol");
+        Console.WriteLine("  bench             Run the labeled retrieval benchmark and emit IR metrics (Recall/MRR/nDCG/CP)");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --kind <type>     Filter by type: 'csharp'/'cs' (C# only), 'xml'/'def' (XML Defs only), or omit for all");

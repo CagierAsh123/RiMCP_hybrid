@@ -1,0 +1,331 @@
+{
+  "_README": [
+    "RiMCP 检索评测集（L1 检索层，确定性指标，不用 LLM）。",
+    "expected 中的每一项匹配 itemId / symbolId，或作为 symbolId 的后缀（'Need_Food' 可匹配 'RimWorld.Need_Food'）。",
+    "expected 来源：先用 tools/Resolve-SymbolIds.ps1 在源码树里核对真实 symbolId，再用 bench 的 missingExpected 复核。",
+    "holdout=true 的 10 条不参与调参，只用于防过拟合的最终验收。",
+    "类别：exact-symbol(8) / def-name(8) / natural-language(8) / cross-layer(8) / bilingual-mod(8)"
+  ],
+  "version": 1,
+  "createdAt": "2026-09-17",
+  "queries": [
+    {
+      "id": "ex01",
+      "query": "Need_Food",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["RimWorld.Need_Food"],
+      "note": "精确类型名。语义路在纯符号名查询上天然弱，是 1.3 混合检索的主要受益点。"
+    },
+    {
+      "id": "ex02",
+      "query": "CompPowerTrader",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["RimWorld.CompPowerTrader"],
+      "note": "精确类型名"
+    },
+    {
+      "id": "ex03",
+      "query": "Pawn_HealthTracker",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["Verse.Pawn_HealthTracker"],
+      "note": "精确类型名；注意命名空间是 Verse 不是 RimWorld",
+      "holdout": true
+    },
+    {
+      "id": "ex04",
+      "query": "JobDriver_Mine",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["RimWorld.JobDriver_Mine"],
+      "note": "精确类型名"
+    },
+    {
+      "id": "ex05",
+      "query": "GenRecipe",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["Verse.GenRecipe"],
+      "note": "精确类型名"
+    },
+    {
+      "id": "ex06",
+      "query": "ThingDef",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["Verse.ThingDef"],
+      "note": "核心类型；高频词，考验排序是否把定义本体排在引用它的地方之前"
+    },
+    {
+      "id": "ex07",
+      "query": "StatWorker_MeleeDamageAmount",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["RimWorld.StatWorker_MeleeDamageAmount"],
+      "note": "长 snake_case 名字",
+      "holdout": true
+    },
+    {
+      "id": "ex08",
+      "query": "HediffComp_Disappears",
+      "kind": "cs",
+      "category": "exact-symbol",
+      "expected": ["Verse.HediffComp_Disappears"],
+      "note": "精确类型名"
+    },
+
+    {
+      "id": "df01",
+      "query": "Steel",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:ThingDef:Steel"],
+      "note": "Def 名；高频短词，考验 Def 本体是否排在引用它的 XML 之前"
+    },
+    {
+      "id": "df02",
+      "query": "MealSimple",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:ThingDef:MealSimple"],
+      "note": "Def 名",
+      "holdout": true
+    },
+    {
+      "id": "df03",
+      "query": "Gun_BoltActionRifle",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:ThingDef:Gun_BoltActionRifle"],
+      "note": "Def 名"
+    },
+    {
+      "id": "df04",
+      "query": "ButcherCorpseFlesh",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:RecipeDef:ButcherCorpseFlesh"],
+      "note": "非 ThingDef 的 DefType（RecipeDef）"
+    },
+    {
+      "id": "df05",
+      "query": "Bed",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:ThingDef:Bed"],
+      "note": "极短 Def 名；树里还有 RuleDef:Bed 同名，只接受 ThingDef"
+    },
+    {
+      "id": "df06",
+      "query": "Electricity",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:ResearchProjectDef:Electricity"],
+      "note": "研究项目 Def",
+      "holdout": true
+    },
+    {
+      "id": "df07",
+      "query": "RaidEnemy",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:IncidentDef:RaidEnemy"],
+      "note": "事件 Def"
+    },
+    {
+      "id": "df08",
+      "query": "Colonist",
+      "kind": "xml",
+      "category": "def-name",
+      "expected": ["xml:PawnKindDef:Colonist"],
+      "note": "PawnKind Def"
+    },
+
+    {
+      "id": "nl01",
+      "query": "how does a pawn's hunger need decrease over time",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["RimWorld.Need_Food"],
+      "note": "自然语言机制提问（英文）"
+    },
+    {
+      "id": "nl02",
+      "query": "how electric power is distributed between connected buildings",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["RimWorld.CompPowerTrader", "RimWorld.PowerNet"],
+      "note": "多期望项：组件 + 电网"
+    },
+    {
+      "id": "nl03",
+      "query": "explosion damage falls off with distance from the center",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["Verse.Explosion", "RimWorld.CompExplosive"],
+      "note": "多期望项",
+      "holdout": true
+    },
+    {
+      "id": "nl04",
+      "query": "hauling items into a stockpile cell",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["Verse.AI.JobDriver_HaulToCell", "RimWorld.StoreUtility"],
+      "note": "多期望项：JobDriver + 工具类"
+    },
+    {
+      "id": "nl05",
+      "query": "how melee damage amount is calculated",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["RimWorld.StatWorker_MeleeDamageAmount", "RimWorld.Verb_MeleeAttack"],
+      "note": "多期望项"
+    },
+    {
+      "id": "nl06",
+      "query": "warning when colony animals are starving",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["RimWorld.Alert_StarvationAnimals"],
+      "note": "自然语言 → 具体 Alert 类"
+    },
+    {
+      "id": "nl07",
+      "query": "managing the thoughts and memories of a pawn",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["RimWorld.ThoughtHandler"],
+      "note": "自然语言 → 管理器类",
+      "holdout": true
+    },
+    {
+      "id": "nl08",
+      "query": "how the game loads XML defs from disk at startup",
+      "kind": "cs",
+      "category": "natural-language",
+      "expected": ["Verse.DefDatabase", "Verse.DirectXmlLoader"],
+      "note": "自然语言 → 基础设施类。两个都是合理答案：DefDatabase 是 Def 注册表，DirectXmlLoader 负责实际从磁盘读取。"
+    },
+
+    {
+      "id": "cl01",
+      "query": "base class of all thing comps",
+      "category": "cross-layer",
+      "expected": ["Verse.ThingComp"],
+      "note": "继承关系提问（get_used_by 的典型前置查询）"
+    },
+    {
+      "id": "cl02",
+      "query": "base class of every AI job driver",
+      "category": "cross-layer",
+      "expected": ["Verse.AI.JobDriver"],
+      "note": "继承关系提问"
+    },
+    {
+      "id": "cl03",
+      "query": "base class of all map components",
+      "category": "cross-layer",
+      "expected": ["Verse.MapComponent"],
+      "note": "继承关系提问"
+    },
+    {
+      "id": "cl04",
+      "query": "base class of all game components",
+      "category": "cross-layer",
+      "expected": ["Verse.GameComponent"],
+      "note": "继承关系提问",
+      "holdout": true
+    },
+    {
+      "id": "cl05",
+      "query": "base class of all planet world objects",
+      "category": "cross-layer",
+      "expected": ["RimWorld.Planet.WorldObject"],
+      "note": "继承关系提问；命名空间在子命名空间里"
+    },
+    {
+      "id": "cl06",
+      "query": "base class for hediff components",
+      "category": "cross-layer",
+      "expected": ["Verse.HediffComp"],
+      "note": "继承关系提问"
+    },
+    {
+      "id": "cl07",
+      "query": "class that manages all of a pawn's needs",
+      "category": "cross-layer",
+      "expected": ["RimWorld.Pawn_NeedsTracker"],
+      "note": "角色类提问"
+    },
+    {
+      "id": "cl08",
+      "query": "class that tracks a pawn's health injuries and capacities",
+      "category": "cross-layer",
+      "expected": ["Verse.Pawn_HealthTracker"],
+      "note": "角色类提问",
+      "holdout": true
+    },
+
+    {
+      "id": "bl01",
+      "query": "鼠鼠种族 NewRatkinPlus 的能力 buff",
+      "category": "bilingual-mod",
+      "expected": ["xml:AbilityDef:RK_Ability_MeleeMoraleBooster"],
+      "note": "中英混合 + mod 专属 Def"
+    },
+    {
+      "id": "bl02",
+      "query": "Milira 米莉拉种族的服装政策",
+      "category": "bilingual-mod",
+      "expected": ["xml:AncotLibrary.ApparelPolicyDef:Milira_ApparelPolicy"],
+      "note": "中英混合；DefType 带命名空间前缀",
+      "holdout": true
+    },
+    {
+      "id": "bl03",
+      "query": "RimTalk 对话系统 interaction def",
+      "category": "bilingual-mod",
+      "expected": ["xml:InteractionDef:RimTalkInteraction"],
+      "note": "中英混合 + mod Def"
+    },
+    {
+      "id": "bl04",
+      "query": "Vehicle Framework 载具移动动画参数",
+      "category": "bilingual-mod",
+      "expected": ["xml:SmashTools.Animations.AnimationParameterDef:VF_VehicleIsMoving"],
+      "note": "中英混合；DefType 带命名空间前缀"
+    },
+    {
+      "id": "bl05",
+      "query": "Vehicle Map Framework 载具跨地图登船",
+      "category": "bilingual-mod",
+      "expected": ["xml:JobDef:VMF_BoardAcrossMaps"],
+      "note": "中英混合 + mod JobDef（最新入库的 mod，用户指定必留）"
+    },
+    {
+      "id": "bl06",
+      "query": "Humanoid Alien Races 外星人框架的种族设置类",
+      "category": "bilingual-mod",
+      "expected": ["AlienRace.AlienRaceSettings"],
+      "note": "中英混合 → C# 类型。注意：HAR 的 XML DefType `AlienRace.RaceSettings` 不以 'Def' 结尾，chunker 的 XML 过滤会整类跳过（已知限制，见 docs/rag-upgrade-plan-2026-09.md），所以这里只能标 C# 类。",
+      "holdout": true
+    },
+    {
+      "id": "bl07",
+      "query": "Dubs Performance Analyzer 性能分析补丁面板",
+      "category": "bilingual-mod",
+      "expected": ["Analyzer.Profiling.Panel_Patches"],
+      "note": "中英混合 → C# 类型"
+    },
+    {
+      "id": "bl08",
+      "query": "Facial Animation 面部动画情绪控制器",
+      "category": "bilingual-mod",
+      "expected": ["FacialAnimation.EmotionControllerComp"],
+      "note": "中英混合 → C# 类型"
+    }
+  ]
+}

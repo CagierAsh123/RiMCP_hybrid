@@ -17,11 +17,13 @@ internal sealed class Chunker
 {
     private readonly IndexingConfig _config;
     private readonly MetadataStore _metadataStore;
+    private readonly PathExclusionFilter _exclusionFilter;
 
     public Chunker(IndexingConfig config, MetadataStore metadataStore)
     {
         _config = config;
         _metadataStore = metadataStore;
+        _exclusionFilter = config.ExclusionFilter ?? PathExclusionFilter.LoadForIndex(config.VectorIndexPath);
     }
 
     public IReadOnlyList<ChunkRecord> BuildChunks()
@@ -32,10 +34,7 @@ internal sealed class Chunker
             throw new DirectoryNotFoundException($"Source root '{sourceRoot}' does not exist.");
         }
 
-        var files = Directory
-            .EnumerateFiles(sourceRoot, "*.*", SearchOption.AllDirectories)
-            .Where(IsIndexableFile)
-            .ToArray();
+        var files = EnumerateIndexableFiles(sourceRoot);
 
         var changedFiles = FilterChangedFiles(files);
         var chunkBag = new ConcurrentBag<ChunkRecord>();
@@ -82,10 +81,7 @@ internal sealed class Chunker
             throw new DirectoryNotFoundException($"Source root '{sourceRoot}' does not exist.");
         }
 
-        var files = Directory
-            .EnumerateFiles(sourceRoot, "*.*", SearchOption.AllDirectories)
-            .Where(IsIndexableFile)
-            .ToArray();
+        var files = EnumerateIndexableFiles(sourceRoot);
 
         var chunkBag = new ConcurrentBag<ChunkRecord>();
         Parallel.ForEach(files, new ParallelOptions { MaxDegreeOfParallelism = _config.MaxDegreeOfParallelism }, file =>
@@ -520,6 +516,29 @@ internal sealed class Chunker
                 DefType = defType // ← New field
             };
         }
+    }
+
+    private string[] EnumerateIndexableFiles(string sourceRoot)
+    {
+        var kept = new List<string>();
+        var excluded = 0;
+
+        foreach (var file in Directory.EnumerateFiles(sourceRoot, "*.*", SearchOption.AllDirectories))
+        {
+            if (_exclusionFilter.IsExcluded(file))
+            {
+                excluded++;
+                continue;
+            }
+
+            if (IsIndexableFile(file))
+            {
+                kept.Add(file);
+            }
+        }
+
+        Console.WriteLine($"[chunker] {kept.Count} indexable files ({excluded} excluded) — {_exclusionFilter.Describe()}");
+        return kept.ToArray();
     }
 
     private static bool IsIndexableFile(string path)

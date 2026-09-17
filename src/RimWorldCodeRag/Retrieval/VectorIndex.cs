@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using RimWorldCodeRag.Common;
 
 namespace RimWorldCodeRag.Retrieval;
 
@@ -22,7 +23,17 @@ internal sealed class VectorIndex
     }
 
     public static VectorIndex Load(string directory)
+        => Load(directory, null);
+
+    /// <summary>
+    /// Load the vector index. <paramref name="exclusionFilter"/> drops entries whose source path
+    /// is excluded; when null the rules are resolved from the index root
+    /// (see <see cref="PathExclusionFilter"/>). Filtering here means newly excluded directories
+    /// stop being retrieved without paying for a re-embedding.
+    /// </summary>
+    public static VectorIndex Load(string directory, PathExclusionFilter? exclusionFilter)
     {
+        var filter = exclusionFilter ?? PathExclusionFilter.LoadForIndex(directory);
         var path = Path.Combine(directory, "vectors.jsonl");
         if (!File.Exists(path))
         {
@@ -30,6 +41,7 @@ internal sealed class VectorIndex
         }
 
         var entries = new List<VectorIndexEntry>();
+        var skipped = 0;
     using var stream = File.OpenRead(path);
         using var reader = new StreamReader(stream);
 
@@ -59,6 +71,13 @@ internal sealed class VectorIndex
                 var symbolId = root.TryGetProperty("symbolId", out var symbolIdProp) ? symbolIdProp.GetString() ?? string.Empty : string.Empty;
 
                 var pathValue = root.TryGetProperty("path", out var pathProp) ? pathProp.GetString() ?? string.Empty : string.Empty;
+
+                if (filter.IsExcluded(pathValue))
+                {
+                    skipped++;
+                    continue;
+                }
+
                 var signatureValue = root.TryGetProperty("signature", out var sigProp) ? sigProp.GetString() : null;
                 var previewValue = root.TryGetProperty("preview", out var previewProp) ? previewProp.GetString() ?? string.Empty : string.Empty;
 
@@ -103,6 +122,11 @@ internal sealed class VectorIndex
             {
                 // Skip malformed entries but continue loading the remainder of the index.
             }
+        }
+
+        if (skipped > 0)
+        {
+            Console.Error.WriteLine($"[vector-index] loaded {entries.Count} vectors, skipped {skipped} excluded by path rules ({filter.Source})");
         }
 
         return new VectorIndex(entries);

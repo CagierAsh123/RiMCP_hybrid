@@ -1,3 +1,6 @@
+﻿> ⚠️ **归属声明（2026-09-16）**：本调研的目标是 **DeepSeek Harness（DSH）的联网搜索能力，不是 RiMCP**。
+> RiMCP 明确不做联网/出网功能（见 docs/rag-assessment-2026-09.md §5）。本文件仅作技术存档，供 DSH 侧会话取用。
+
 # Adding web search + GitHub code search to the .NET 8 stdio RimWorld RAG MCP server (2026)
 
 Verification note: `[live]` = endpoint hit from this machine during research. `[UNCERTAIN]` = not live-verified (web-search engines were rate-limited when this was written) or vendor-claim only. All endpoints are plain HTTP/JSON and callable from .NET with `HttpClient`.
