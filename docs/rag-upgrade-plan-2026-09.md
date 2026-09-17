@@ -570,3 +570,46 @@ index --root B:\rimworld-code\_SourceCode --vec index\vec ... --embedding-server
 3. `bench --diagnose` 对比 `tests/baseline-e5.json`：重点看 **bilingual-mod** 能否从 0.125 起飞
 4. 重嵌入后 `vectors.bin` 应为 144,732 × 1024 × 4 ≈ **565 MB**
 5. 把 5000 端口的 e5 服务换成 Qwen3（这样 MCP 配置不用改）
+
+---
+
+## 13. 任务 0.5 在线监控（L3）实现完成（2026-09-17）
+
+### 13.1 打点位置
+
+`McpServer.HandleToolsCallAsync` 是**所有工具调用的唯一咽喉点**，遥测挂在这里，
+不在每个工具里重复实现。每次调用追加一行 JSONL 到 `index\logs\mcp-tool-calls.jsonl`：
+
+```json
+{"ts":"2026-09-17T22:10:11.123+08:00","tool":"rough_search","ok":true,"ms":210.5,"n":12,
+ "query":"pawn hunger tick","kind":"cs","max":20}
+```
+字段刻意取短（文件无上限增长）：`ts/tool/ok/ms/n/query/symbol/kind/max/lines/err`。
+
+约定：
+- 遥测**绝不允许影响工具调用**——每次写入都包在 try 里，写失败即自我禁用并只报一次 stderr
+- `RIMWORLD_TELEMETRY=0` 关闭；`RIMWORLD_TELEMETRY_PATH` 改路径
+- `n`（结果数）从工具返回值里提：`rough_search` 用 `totalFound`、`get_uses/get_used_by` 用
+  `totalCount`、`get_item` 单条为 1、错误对象为 0
+
+### 13.2 汇总：`telemetry` 子命令
+
+```
+RimWorldCodeRag telemetry --path src\RimWorldCodeRag\index\logs\mcp-tool-calls.jsonl [--since 24]
+```
+
+输出：调用数、错误率、**延迟 avg/p50/p95/max**、工具分布、`rough_search` 的 **0 结果率**、
+以及 **`rough_search` → `get_item` 转化率**（"搜索给出的东西 agent 真的会去读"的最近似代理指标），
+外加"返回 0 结果的查询清单"——**这是评测集新条目的直接来源**。
+
+已用合成日志验证过一遍（6 条调用，含 0 结果、错误、慢查询各一）。
+
+### 13.3 与 L1/L2 的分工
+
+| 层 | 回答的问题 | 触发时机 |
+|---|---|---|
+| L1 `bench` | **能不能**找到（确定性、可归因） | 每次改动后 |
+| **L2 子代理** | agent 用这套工具**能不能把活干成** | 里程碑 |
+| **L3 `telemetry`** | 真实使用中**到底怎么样**（延迟/失败/使用模式） | 持续 |
+
+L3 的另一半价值：它记录的 0 结果查询是**真实分布**，比人工拟的评测集更贴近实战。

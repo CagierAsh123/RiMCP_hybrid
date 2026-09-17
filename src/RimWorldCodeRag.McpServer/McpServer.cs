@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using RimWorldCodeRag.McpServer.Configuration;
 using RimWorldCodeRag.McpServer.Infrastructure;
 using RimWorldCodeRag.McpServer.Tools;
+using RimWorldCodeRag.Telemetry;
 
 
 //MCP 服务器主类
@@ -17,6 +18,7 @@ public sealed class McpServer : IDisposable
     private readonly StdioTransport _transport;
     private readonly Dictionary<string, ITool> _tools;
     private readonly McpServerConfig _config;
+    private readonly ToolCallLog? _telemetry;
     private bool _initialized;
     private bool _disposed;
 
@@ -27,9 +29,11 @@ public sealed class McpServer : IDisposable
 
         _transport = new StdioTransport();
         _tools = new Dictionary<string, ITool>();
+        _telemetry = ToolCallLog.Create(_config.IndexRoot);
 
         LogToStderr($"MCP Server initialized with index root: {config.IndexRoot}");
         LogToStderr($"Embedding server URL: {config.EmbeddingServerUrl ?? "(not configured)"}");
+        LogToStderr($"Telemetry: {_telemetry?.Path ?? "(disabled)"}");
     }
 
     //注册工具
@@ -148,6 +152,29 @@ public sealed class McpServer : IDisposable
         return JsonRpcResponse.Success(request.Id, new { tools });
     }
 
+    private void RecordTelemetry(string tool, JsonElement arguments, double latencyMs, bool ok, string? error, int? resultCount)
+    {
+        if (_telemetry is null)
+        {
+            return;
+        }
+
+        var (query, symbol, kind, maxResults, maxLines) = ToolCallLog.ProjectArguments(tool, arguments);
+        _telemetry.Record(new ToolCallRecord
+        {
+            Tool = tool,
+            Ok = ok,
+            LatencyMs = Math.Round(latencyMs, 1),
+            ResultCount = resultCount,
+            Query = query,
+            Symbol = symbol,
+            Kind = kind,
+            MaxResults = maxResults,
+            MaxLines = maxLines,
+            Error = error
+        });
+    }
+
     private async Task<JsonRpcResponse> HandleToolsCallAsync(JsonRpcRequest request, CancellationToken cancellationToken)
     {
         if (!_initialized)
@@ -186,18 +213,44 @@ public sealed class McpServer : IDisposable
         {
             LogToStderr($"Executing tool: {toolCall.Name}");
 
-            var result = await tool.ExecuteAsync(toolCall.Arguments);
+            var arguments = toolCall.Arguments;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            object result;
+            try
+            {
+                result = await tool.ExecuteAsync(arguments);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                RecordTelemetry(toolCall.Name, arguments, stopwatch.Elapsed.TotalMilliseconds, false, ex.Message, null);
+                throw;
+            }
+
+            stopwatch.Stop();
+
+            // Serialise once and read both the response text and the result count from it.
+            using var document = JsonDocument.Parse(JsonSerializer.Serialize(result, new JsonSerializerOptions
+            {
+                WriteIndented = false,
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            }));
+            var payload = document.RootElement;
+
+            RecordTelemetry(
+                toolCall.Name,
+                arguments,
+                stopwatch.Elapsed.TotalMilliseconds,
+                true,
+                null,
+                ToolCallLog.ResultCountOf(payload, toolCall.Name));
 
             var content = new[]
             {
                 new
                 {
                     type = "text",
-                    text = JsonSerializer.Serialize(result, new JsonSerializerOptions
-                    {
-                        WriteIndented = false,
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                    })
+                    text = payload.GetRawText()
                 }
             };
 

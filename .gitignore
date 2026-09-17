@@ -487,6 +487,12 @@ ENV/
 **/index.bak/
 **/index.bak.*/
 **/index/*.bak/
+# Superseded vector directories kept for a rollback (index/vec.e5, index/vec.e5bak, ...)
+**/index/vec.e5*/
+**/index/vec.qwen3*/
+
+# L3 telemetry: append-only runtime log, not source.
+**/index/logs/
 
 # RimWorld specific - EXCLUDE ALL COPYRIGHTED MATERIAL
 RimWorldData/

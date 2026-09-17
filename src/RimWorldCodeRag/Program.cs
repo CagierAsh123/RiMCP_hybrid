@@ -7,6 +7,7 @@ using RimWorldCodeRag.Common;
 using RimWorldCodeRag.Evaluation;
 using RimWorldCodeRag.Indexer;
 using RimWorldCodeRag.Retrieval;
+using RimWorldCodeRag.Telemetry;
 
 public static class Program
 {
@@ -38,6 +39,8 @@ public static class Program
                 return RunPackVectors(tail);
             case "build-mod-catalog":
                 return RunBuildModCatalog(tail);
+            case "telemetry":
+                return ToolCallSummary.Run(tail);
             default:
                 Console.Error.WriteLine($"Unknown command '{command}'.");
                 PrintUsage();
@@ -564,6 +567,8 @@ public static class Program
         Console.WriteLine("  RimWorldCodeRag get-item --symbol <id> [--max-lines <n>] [--lucene <dir>]");
         Console.WriteLine("  RimWorldCodeRag bench --queries <file.json> [--out <file.json>] [--compare <file.json>] [--label <name>] [--lucene <dir>] [--vec <dir>] [--embedding-server <url>] [--max-results <n>] [--warmup <n>] [--hybrid] [--fusion weighted|rrf] [--weights <lex>,<sem>] [--semantic-k <n>] [--diagnose] [--no-exclude] [--no-dedupe]");
         Console.WriteLine("  RimWorldCodeRag pack-vectors [--vec <dir>] [--overwrite]");
+        Console.WriteLine("  RimWorldCodeRag build-mod-catalog --root <path> [--vec <dir>] [--threads <n>]");
+        Console.WriteLine("  RimWorldCodeRag telemetry --path <mcp-tool-calls.jsonl> [--since <hours>]");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  index             Build search index from source code and XML Defs");
@@ -573,6 +578,8 @@ public static class Program
         Console.WriteLine("  get-item          Retrieve full source code for a specific symbol");
         Console.WriteLine("  bench             Run the labeled retrieval benchmark and emit IR metrics (Recall/MRR/nDCG/CP)");
         Console.WriteLine("  pack-vectors      Repack a legacy vectors.jsonl into vectors.bin + vectors.meta.jsonl (no re-embedding)");
+        Console.WriteLine("  build-mod-catalog Rebuild only index/mods.json (mod alias/vocabulary table) from a source snapshot");
+        Console.WriteLine("  telemetry         Summarise the MCP tool-call JSONL (latency P50/P95, 0-result rate, search→get_item conversion)");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --kind <type>     Filter by type: 'csharp'/'cs' (C# only), 'xml'/'def' (XML Defs only), or omit for all");
