@@ -15,7 +15,9 @@
   新模型的服务地址（换模型时通常是 5001，切完端口后是 5000）。
 
 .PARAMETER Baseline
-  要对比的旧基线 JSON，默认 tests\baseline-e5.json。
+  要对比的旧基线 JSON。默认 tests\m1-fused-default.json —— 它用的是**与本次运行相同的配置**
+  （融合 0.3/0.7），所以差异只反映模型换代。纯语义的 tests\baseline-e5.json 是更早的参照，
+  拿它对比会把"融合的收益"和"模型换代的收益"混在一起。
 
 .PARAMETER ExpectedDim
   期望的向量维度（Qwen3-Embedding-0.6B = 1024，e5-base-v2 = 768）。
@@ -35,7 +37,7 @@
 [CmdletBinding()]
 param(
     [string]$EmbeddingServer = 'http://127.0.0.1:5001',
-    [string]$Baseline = 'tests\baseline-e5.json',
+    [string]$Baseline = 'tests\m1-fused-default.json',
     [int]$ExpectedDim = 1024,
     [string]$Label = 'qwen3-embedding-0.6b',
     [string]$Out = 'tests\baseline-qwen3.json',
@@ -134,7 +136,7 @@ Step "4/4 benchmark vs $Baseline"
     -Label $Label `
     -Out $Out `
     -Compare $Baseline `
-    -Hybrid -Weights '0.3,0.7' `
+
     -EmbeddingServer $EmbeddingServer `
     -Diagnose
 if ($LASTEXITCODE -ne 0) { Fail "bench-retrieval.ps1 失败" }

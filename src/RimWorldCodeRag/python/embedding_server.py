@@ -45,6 +45,16 @@ state: Dict[str, Any] = {
 }
 
 
+def _normalize_fp32(encoded):
+    """L2-normalize in float32 so ``|v| == 1`` to float precision, independent of the model dtype."""
+    import numpy as np
+
+    array = np.asarray(encoded, dtype=np.float32)
+    norms = np.linalg.norm(array, axis=1, keepdims=True)
+    norms[norms == 0] = 1.0
+    return (array / norms).tolist()
+
+
 def _text_of(item: Dict[str, Any]) -> str:
     text = (item.get("text") or "").strip()
     if not text:
@@ -102,11 +112,14 @@ def _encode_batch(items: List[Dict[str, Any]], mode: str) -> List[List[float]]:
                 batch,
                 prompt_name=prompt_name,
                 batch_size=len(batch),
-                normalize_embeddings=True,
+                # Normalize ourselves in float32 below. Letting sentence-transformers normalize in
+                # bfloat16 leaves the vectors only approximately unit length (measured |v| = 1.0012),
+                # which biases every dot product by ~0.1%.
+                normalize_embeddings=False,
                 show_progress_bar=False,
                 convert_to_numpy=True,
             )
-            vectors.extend(encoded.tolist())
+            vectors.extend(_normalize_fp32(encoded))
         return vectors
 
     # Legacy transformers path.

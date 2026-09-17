@@ -5,7 +5,20 @@ namespace RimWorldCodeRag.Retrieval;
 
 public sealed class RoughSearchConfig
 {
-    public const int DefaultSemanticCandidates = 5;
+    /// <summary>
+    /// Semantic candidates to fuse. Measured: raising this from 5 to 100 with Qwen3-Embedding moved
+    /// relaxed Recall@10 from 0.5625 to 0.6000 and cut 'absent from both legs' from 5 to 3, at no
+    /// measurable cost (it was neutral for e5).
+    /// </summary>
+    public const int DefaultSemanticCandidates = 100;
+
+    /// <summary>Measured optimum for <see cref="SymbolMatchBoost"/> (0.6 and 1.0 gave identical
+    /// results, so the boost already saturates there).</summary>
+    public const double DefaultSymbolMatchBoost = 0.6;
+
+    /// <summary>Fusion weights measured best on both e5 and Qwen3 (0.5/0.5 is worse than semantic-only).</summary>
+    public const double DefaultLexicalWeight = 0.3;
+    public const double DefaultSemanticWeight = 0.7;
 
     public required string LuceneIndexPath { get; init; }
     public required string VectorIndexPath { get; init; }
@@ -27,10 +40,10 @@ public sealed class RoughSearchConfig
     public bool DedupeBySymbolId { get; init; } = true;
 
     /// <summary>Weight of the min-max normalized lexical score in the fused ranking.</summary>
-    public double LexicalWeight { get; init; } = 0.5;
+    public double LexicalWeight { get; init; } = DefaultLexicalWeight;
 
     /// <summary>Weight of the min-max normalized semantic score in the fused ranking.</summary>
-    public double SemanticWeight { get; init; } = 0.5;
+    public double SemanticWeight { get; init; } = DefaultSemanticWeight;
 
     /// <summary>
     /// Score fusion: <c>WeightedSum</c> (min-max normalize each leg, then weighted sum) or
@@ -76,6 +89,15 @@ public sealed class RoughSearchConfig
     /// plan is explicit that a reranker only graduates to default-on once the benchmark shows a gain.
     /// </summary>
     public int RerankCandidates { get; init; }
+
+    /// <summary>
+    /// Bonus added to a candidate whose symbol id exactly matches an identifier-looking query
+    /// (plan task 1.3). Measured need: Qwen3-Embedding finds strictly more of the hard items than e5
+    /// (absent 12 -> 3) but ranks bare identifiers worse, and simply raising the lexical weight
+    /// collapses the natural-language queries (R@10 0.4750 -> 0.2500). A targeted exact-symbol bonus
+    /// fixes the identifier case without touching the rest.
+    /// </summary>
+    public double SymbolMatchBoost { get; init; } = DefaultSymbolMatchBoost;
 
     public string? Kind { get; init; }
 

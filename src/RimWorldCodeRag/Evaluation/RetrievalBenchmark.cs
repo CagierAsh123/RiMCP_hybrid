@@ -92,16 +92,26 @@ public static class RetrievalBenchmark
         var outPath = options.TryGetValue("out", out var outValue) ? outValue : null;
         var comparePath = options.TryGetValue("compare", out var compareValue) ? compareValue : null;
         var warmup = ParseInt(options, "warmup", 1);
-        var useHybrid = options.ContainsKey("hybrid");
+        // Default to the PRODUCTION configuration: the searcher's own defaults (fused 0.3/0.7 +
+        // symbol boost). `--hybrid` is still accepted as a no-op for older command lines, and
+        // `--semantic-only` reproduces the legacy pure-semantic mode for A/B work. Forcing
+        // semantic-only when no flag was given silently benchmarked a configuration nobody ships.
+        var semanticOnly = options.ContainsKey("semantic-only");
+        var useHybrid = !semanticOnly;
         var noExclude = options.ContainsKey("no-exclude");
         var noDedupe = options.ContainsKey("no-dedupe");
         var diagnose = options.ContainsKey("diagnose");
         var fusion = GetOrDefault(options, "fusion", "weighted").Equals("rrf", StringComparison.OrdinalIgnoreCase)
             ? FusionMode.Rrf
             : FusionMode.WeightedSum;
-        var (lexicalWeight, semanticWeight) = ParseWeights(GetOrDefault(options, "weights", "0.5,0.5"));
+        // Inherit the shipped fusion weights unless the caller asks for specific ones: a hard-coded
+        // default here would silently benchmark a configuration nobody runs.
+        var (lexicalWeight, semanticWeight) = options.ContainsKey("weights")
+            ? ParseWeights(options["weights"])
+            : (RoughSearchConfig.DefaultLexicalWeight, RoughSearchConfig.DefaultSemanticWeight);
         var modExpansion = ParseModExpansion(GetOrDefault(options, "mod-expand", "none"));
         var modPathBoost = ParseDouble(options, "mod-boost", 0.0);
+        var symbolBoost = options.ContainsKey("symbol-boost") ? ParseDouble(options, "symbol-boost", 0.0) : RoughSearchConfig.DefaultSymbolMatchBoost;
         var rerankCandidates = ParseInt(options, "rerank", 0);
         var rerankServer = GetOrDefault(options, "rerank-server", "");
 
@@ -139,12 +149,13 @@ public static class RetrievalBenchmark
             SemanticCandidates = semanticCandidates,
             ExclusionFilter = exclusion,
             DedupeBySymbolId = !noDedupe,
-            UseSemanticScoringOnly = !useHybrid,
+            UseSemanticScoringOnly = semanticOnly,
             LexicalWeight = lexicalWeight,
             SemanticWeight = semanticWeight,
             Fusion = fusion,
             ModExpansion = modExpansion,
             ModPathBoost = modPathBoost,
+            SymbolMatchBoost = symbolBoost,
             RerankCandidates = rerankCandidates,
             RerankServerUrl = string.IsNullOrWhiteSpace(rerankServer) ? null : rerankServer
         };
@@ -256,13 +267,14 @@ public static class RetrievalBenchmark
             exclusionDisabled = noExclude,
             dedupeBySymbolId = !noDedupe,
             useSemanticScoringOnly = !useHybrid,
-            fusion = useHybrid ? fusion.ToString() : "semantic-only",
+            fusion = semanticOnly ? "semantic-only" : fusion.ToString(),
             modExpansion = modExpansion.ToString(),
             modPathBoost,
+            symbolBoost,
             rerankCandidates,
             rerankServer = string.IsNullOrWhiteSpace(rerankServer) ? null : rerankServer,
-            lexicalWeight = useHybrid ? lexicalWeight : 0,
-            semanticWeight = useHybrid ? semanticWeight : 1,
+            lexicalWeight = semanticOnly ? 0 : lexicalWeight,
+            semanticWeight = semanticOnly ? 1 : semanticWeight,
             maxResults,
             lexicalCandidates,
             semanticCandidates,

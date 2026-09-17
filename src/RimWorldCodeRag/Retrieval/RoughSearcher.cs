@@ -126,7 +126,8 @@ public sealed class RoughSearcher : IDisposable
         // When reranking, fuse a wider pool than we intend to return: the whole point is to promote a
         // good candidate that fusion ranked just outside the cut.
         var poolSize = opts.RerankCandidates > 0 ? Math.Max(opts.MaxResults, opts.RerankCandidates) : opts.MaxResults;
-        IReadOnlyList<RoughSearchResult> merged = MergeResults(lexicalMatches, semanticMatches, opts, poolSize);
+        var identifierQuery = opts.SymbolMatchBoost > 0 ? DetectIdentifierQuery(query) : null;
+        IReadOnlyList<RoughSearchResult> merged = MergeResults(lexicalMatches, semanticMatches, opts, poolSize, identifierQuery);
 
         if (opts.RerankCandidates > 0 && merged.Count > 1)
         {
@@ -271,6 +272,51 @@ public sealed class RoughSearcher : IDisposable
     }
 
     private readonly record struct ModExpansion(string LexicalQuery, string EmbeddingQuery, IReadOnlyList<string> Mods);
+
+    /// <summary>
+    /// True when the query looks like a symbol name rather than a sentence: no whitespace and either a
+    /// separator (<c>_ . :</c>) or an internal capital.
+    /// </summary>
+    internal static string? DetectIdentifierQuery(string query)
+    {
+        var trimmed = query.Trim();
+        if (trimmed.Length is < 3 or > 120 || trimmed.Any(char.IsWhiteSpace))
+        {
+            return null;
+        }
+
+        foreach (var ch in trimmed)
+        {
+            if (!char.IsLetterOrDigit(ch) && ch is not ('_' or '.' or ':'))
+            {
+                return null;
+            }
+        }
+
+        var hasSignal = trimmed.Contains('_') || trimmed.Contains('.') || trimmed.Contains(':') ||
+                        trimmed.Skip(1).Any(char.IsUpper);
+        return hasSignal ? trimmed : null;
+    }
+
+    private static void MarkIfSymbolMatch(Candidate candidate, string? identifierQuery)
+    {
+        if (identifierQuery is null)
+        {
+            return;
+        }
+
+        var symbolId = candidate.Document.Get(LuceneWriter.FieldSymbolId);
+        if (string.IsNullOrEmpty(symbolId))
+        {
+            return;
+        }
+
+        if (symbolId.Equals(identifierQuery, StringComparison.OrdinalIgnoreCase) ||
+            symbolId.EndsWith("." + identifierQuery, StringComparison.OrdinalIgnoreCase))
+        {
+            candidate.MarkSymbolMatch();
+        }
+    }
 
     private static string BuildCacheKey(string query, ResolvedOptions opts)
         => string.Join('\u0001',
@@ -452,6 +498,7 @@ public sealed class RoughSearcher : IDisposable
             o.ModPathBoost ?? _config.ModPathBoost,
             o.MaxModMatches ?? _config.MaxModMatches,
             o.MaxExpansionTerms ?? _config.MaxExpansionTerms,
+            o.SymbolMatchBoost ?? _config.SymbolMatchBoost,
             o.RerankCandidates ?? _config.RerankCandidates,
             o.RerankServerUrl ?? _config.RerankServerUrl);
     }
@@ -470,6 +517,7 @@ public sealed class RoughSearcher : IDisposable
         double ModPathBoost,
         int MaxModMatches,
         int MaxExpansionTerms,
+        double SymbolMatchBoost,
         int RerankCandidates,
         string? RerankServerUrl);
 
@@ -619,7 +667,7 @@ public sealed class RoughSearcher : IDisposable
         }
     }
 
-    private IReadOnlyList<RoughSearchResult> MergeResults(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take)
+    private IReadOnlyList<RoughSearchResult> MergeResults(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take, string? identifierQuery)
     {
         if (opts.UseSemanticScoringOnly)
         {
@@ -666,8 +714,8 @@ public sealed class RoughSearcher : IDisposable
         }
 
         return opts.Fusion == FusionMode.Rrf
-            ? MergeRrf(lexical, semantic, opts, take)
-            : MergeWeightedSum(lexical, semantic, opts, take);
+            ? MergeRrf(lexical, semantic, opts, take, identifierQuery)
+            : MergeWeightedSum(lexical, semantic, opts, take, identifierQuery);
     }
 
     /// <summary>
@@ -676,7 +724,7 @@ public sealed class RoughSearcher : IDisposable
     /// so the previous "just add them" version ranked worse than semantic-only
     /// (docs/rag-upgrade-plan-2026-09.md §10.2).
     /// </summary>
-    private IReadOnlyList<RoughSearchResult> MergeWeightedSum(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take)
+    private IReadOnlyList<RoughSearchResult> MergeWeightedSum(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take, string? identifierQuery)
     {
         var (lexMin, lexMax) = MinMax(lexical.Select(m => (double)m.Score));
         var (semMin, semMax) = MinMax(semantic.Select(m => (double)m.Score));
@@ -691,6 +739,7 @@ public sealed class RoughSearcher : IDisposable
                 candidates[match.ItemId] = candidate;
             }
 
+            MarkIfSymbolMatch(candidate, identifierQuery);
             candidate.SetLexical(Normalize(match.Score, lexMin, lexMax));
         }
 
@@ -708,12 +757,13 @@ public sealed class RoughSearcher : IDisposable
                 candidates[match.Entry.ItemId] = candidate;
             }
 
+            MarkIfSymbolMatch(candidate, identifierQuery);
             candidate.SetSemantic(Normalize(match.Score, semMin, semMax));
         }
 
         foreach (var candidate in candidates.Values)
         {
-            candidate.ComputeWeightedScore(opts.LexicalWeight, opts.SemanticWeight);
+            candidate.ComputeWeightedScore(opts.LexicalWeight, opts.SemanticWeight, opts.SymbolMatchBoost);
         }
 
         return FinalizeResults(
@@ -732,7 +782,7 @@ public sealed class RoughSearcher : IDisposable
     /// Scale-free, so it needs no normalization; a useful cross-check against
     /// <see cref="MergeWeightedSum"/>.
     /// </summary>
-    private IReadOnlyList<RoughSearchResult> MergeRrf(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take)
+    private IReadOnlyList<RoughSearchResult> MergeRrf(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take, string? identifierQuery)
     {
         const int RrfK = 60;
         var candidates = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
@@ -746,6 +796,7 @@ public sealed class RoughSearcher : IDisposable
                 candidates[match.ItemId] = candidate;
             }
 
+            MarkIfSymbolMatch(candidate, identifierQuery);
             candidate.AddRrfScore(opts.LexicalWeight / (RrfK + i + 1.0), fromLexical: true);
         }
 
@@ -764,12 +815,13 @@ public sealed class RoughSearcher : IDisposable
                 candidates[match.Entry.ItemId] = candidate;
             }
 
+            MarkIfSymbolMatch(candidate, identifierQuery);
             candidate.AddRrfScore(opts.SemanticWeight / (RrfK + i + 1.0), fromLexical: false);
         }
 
         foreach (var candidate in candidates.Values)
         {
-            candidate.ComputeRrfScore();
+            candidate.ComputeRrfScore(opts.SymbolMatchBoost);
         }
 
         return FinalizeResults(
@@ -995,6 +1047,7 @@ public sealed class RoughSearcher : IDisposable
         private double _lexicalScore;
         private double _semanticScore;
         private double _rrfScore;
+        private bool _symbolMatch;
 
         public Candidate(Document document)
         {
@@ -1033,15 +1086,21 @@ public sealed class RoughSearcher : IDisposable
             }
         }
 
-        public void ComputeWeightedScore(double lexicalWeight, double semanticWeight)
+        /// <summary>Query looks like a symbol name and this candidate's symbol matches it exactly.</summary>
+        public void MarkSymbolMatch() => _symbolMatch = true;
+
+        public bool SymbolMatch => _symbolMatch;
+
+        public void ComputeWeightedScore(double lexicalWeight, double semanticWeight, double symbolBoost)
         {
             FinalScore = (HasLexical ? _lexicalScore * lexicalWeight : 0.0)
-                       + (HasSemantic ? _semanticScore * semanticWeight : 0.0);
+                       + (HasSemantic ? _semanticScore * semanticWeight : 0.0)
+                       + (_symbolMatch ? symbolBoost : 0.0);
         }
 
-        public void ComputeRrfScore()
+        public void ComputeRrfScore(double symbolBoost)
         {
-            FinalScore = _rrfScore;
+            FinalScore = _rrfScore + (_symbolMatch ? symbolBoost : 0.0);
         }
     }
 }

@@ -59,6 +59,7 @@ public sealed record RoughSearchOptions
     public double? ModPathBoost { get; init; }
     public int? MaxModMatches { get; init; }
     public int? MaxExpansionTerms { get; init; }
+    public double? SymbolMatchBoost { get; init; }
     public int? RerankCandidates { get; init; }
     public string? RerankServerUrl { get; init; }
 
@@ -77,6 +78,7 @@ public sealed record RoughSearchOptions
         ModPathBoost = config.ModPathBoost,
         MaxModMatches = config.MaxModMatches,
         MaxExpansionTerms = config.MaxExpansionTerms,
+        SymbolMatchBoost = config.SymbolMatchBoost,
         RerankCandidates = config.RerankCandidates,
         RerankServerUrl = config.RerankServerUrl
     };

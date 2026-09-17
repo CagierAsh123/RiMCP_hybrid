@@ -68,7 +68,15 @@ COMMON MODDING PATTERNS:
             UseSemanticScoringOnly = false,
             Fusion = FusionMode.WeightedSum,
             LexicalWeight = 0.3,
-            SemanticWeight = 0.7
+            SemanticWeight = 0.7,
+
+            // Identifier-aware exact-symbol bonus (task 1.3). Needed once Qwen3-Embedding replaced e5:
+            // the new model finds far more of the hard items (absent 12 -> 3) but ranks bare
+            // identifiers worse, and raising the lexical weight instead collapses the
+            // natural-language queries. Measured on tests/retrieval-baseline.json:
+            //   e5   fused 0.3/0.7                  Recall@10 0.5000  MRR 0.4042  Hits@1 14/40
+            //   qwen3 fused 0.3/0.7 + sk100         Recall@10 0.5750  MRR 0.4573  Hits@1 15/40
+            SymbolMatchBoost = 0.6
         };
 
         _searcher = new Lazy<RoughSearcher>(() =>

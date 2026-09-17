@@ -34,10 +34,11 @@
   用来区分「候选生成问题（两腿都没有）」和「排序问题（捞到了没排上来）」。
 
 .PARAMETER SemanticK
-  语义路候选数（默认 5）。
+  语义路候选数。**默认 0 = 不传该参数、继承检索器的配置默认值**（当前 100）。
+  传一个具体值会覆盖生产默认，所以只在做 A/B 时才用。
 
 .PARAMETER LexicalK
-  词法路候选数（默认 1000）。
+  词法路候选数。默认 0 = 继承配置（当前 1000）。
 
 .PARAMETER NoExclude
   关闭路径排除（用于量化排除对指标的影响；注意 Lucene 侧已物理重建，只影响语义路）。
@@ -70,12 +71,13 @@ param(
     [string]$Compare,
     [string]$Label = 'unlabeled',
     [switch]$Hybrid,
+    [switch]$SemanticOnly,
     [ValidateSet('weighted', 'rrf')]
     [string]$Fusion = 'weighted',
-    [string]$Weights = '0.5,0.5',
+    [string]$Weights = '',
     [switch]$Diagnose,
-    [int]$SemanticK = 5,
-    [int]$LexicalK = 1000,
+    [int]$SemanticK = 0,
+    [int]$LexicalK = 0,
     [switch]$NoExclude,
     [switch]$NoDedupe,
     [int]$MaxResults = 20,
@@ -114,10 +116,14 @@ $arguments = @(
     '--embedding-server', $EmbeddingServer,
     '--max-results', $MaxResults,
     '--warmup', $Warmup,
-    '--semantic-k', $SemanticK,
-    '--lexical-k', $LexicalK,
     '--label', $Label
 )
+
+# Candidate counts are only passed when the caller asks for a specific value; otherwise the
+# searcher's own defaults apply. Passing a hard-coded default here silently overrode the shipped
+# configuration (SemanticCandidates 100 -> 5) and made the archived result not match production.
+if ($SemanticK -gt 0) { $arguments += @('--semantic-k', $SemanticK) }
+if ($LexicalK -gt 0) { $arguments += @('--lexical-k', $LexicalK) }
 
 if ($Out) { $arguments += @('--out', $Out) }
 else {
@@ -126,9 +132,13 @@ else {
     $arguments += @('--out', (Join-Path ([System.IO.Path]::GetTempPath()) 'rimcp-bench-report.json'))
 }
 if ($Compare) { $arguments += @('--compare', (Resolve-Path -LiteralPath $Compare).Path) }
-if ($Hybrid) {
-    $arguments += @('--hybrid', '--fusion', $Fusion, '--weights', $Weights)
-}
+
+# Scoring flags are only passed when the caller asks for them; otherwise the searcher's shipped
+# defaults apply. Hard-coding them here silently overrode production settings.
+if ($SemanticOnly) { $arguments += '--semantic-only' }
+if ($Hybrid) { $arguments += '--hybrid' }
+if ($Fusion -and $Hybrid) { $arguments += @('--fusion', $Fusion) }
+if ($Weights) { $arguments += @('--weights', $Weights) }
 if ($Diagnose) { $arguments += '--diagnose' }
 if ($NoExclude) { $arguments += '--no-exclude' }
 if ($NoDedupe) { $arguments += '--no-dedupe' }

@@ -74,7 +74,8 @@ def main() -> int:
 
     norms = [norm(query_vec)] + [norm(v) for v in passage_vecs]
     for index, value in enumerate(norms):
-        if abs(value - 1.0) > 1e-3:
+        # The server normalizes in float32, so this is tight; bfloat16 forward passes are not.
+        if abs(value - 1.0) > 1e-5:
             failures.append(f"vector[{index}] is not L2-normalized: |v| = {value:.6f}")
     print(f"norms: {[round(n, 6) for n in norms]}")
 
@@ -101,11 +102,13 @@ def main() -> int:
     if not ranked[0][1].startswith("public class Need_Food"):
         failures.append("the hunger passage did not rank first for the hunger query")
 
-    # Batch == single, and repeated calls are deterministic.
+    # Batch == single, and repeated calls agree. bfloat16 GPU kernels are not bit-reproducible, so
+    # this checks agreement to a cosine tolerance rather than exact equality.
     batched = embed(args.url, passages, "passage")
     for index, (a, b) in enumerate(zip(batched, passage_vecs)):
-        if abs(cosine(a, b) - 1.0) > 1e-6:
-            failures.append(f"passage[{index}] differs between calls")
+        cosine_ab = cosine(a, b)
+        if abs(cosine_ab - 1.0) > 1e-3:
+            failures.append(f"passage[{index}] differs between calls (cosine {cosine_ab:.6f})")
 
     print()
     if failures:
