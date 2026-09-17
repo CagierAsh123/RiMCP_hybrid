@@ -66,6 +66,17 @@ public sealed class RoughSearchConfig
     /// <summary>Mod alias table; when null it is loaded from the index root.</summary>
     public ModCatalog? ModCatalog { get; init; }
 
+    /// <summary>
+    /// Cross-encoder reranker endpoint (<c>python/rerank_server.py</c>). Null disables reranking.
+    /// </summary>
+    public string? RerankServerUrl { get; init; }
+
+    /// <summary>
+    /// How many fused candidates to rerank. <b>0 disables reranking</b> — the default, because the
+    /// plan is explicit that a reranker only graduates to default-on once the benchmark shows a gain.
+    /// </summary>
+    public int RerankCandidates { get; init; }
+
     public string? Kind { get; init; }
 
     public string? EmbeddingServerUrl { get; init; }

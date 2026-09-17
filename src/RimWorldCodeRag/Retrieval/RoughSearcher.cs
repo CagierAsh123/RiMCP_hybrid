@@ -35,6 +35,7 @@ public sealed class RoughSearcher : IDisposable
     private readonly PathExclusionFilter _exclusionFilter;
     private readonly ModCatalog _modCatalog;
     private readonly ResultCache _resultCache = new(200);
+    private RerankerClient? _rerankerClient;
 
     public RoughSearcher(RoughSearchConfig config)
     {
@@ -98,13 +99,105 @@ public sealed class RoughSearcher : IDisposable
             return cached;
         }
 
-        var (lexicalMatches, semanticMatches) = await RetrieveAsync(query, opts, cancellationToken).ConfigureAwait(false);
+        var (lexicalMatches, semanticMatches, final) = await SearchCoreAsync(query, opts, cancellationToken).ConfigureAwait(false);
 
         Console.Error.WriteLine($"[debug] Lexical: {lexicalMatches.Count}, Semantic (full-corpus): {semanticMatches.Count}");
 
-        var merged = MergeResults(lexicalMatches, semanticMatches, opts);
-        _resultCache.Add(cacheKey, merged);
-        return merged;
+        _resultCache.Add(cacheKey, final);
+        return final;
+    }
+
+    /// <summary>
+    /// The shared retrieval core: both legs, fusion, optional reranking, truncation.
+    ///
+    /// <para>
+    /// <see cref="SearchAsync"/> and <see cref="SearchWithDiagnosticsAsync"/> must go through this,
+    /// otherwise the diagnostic entry point silently reports a different ranking than the one the
+    /// tools return (that inconsistency briefly made a rerank measurement look like a no-op).
+    /// </para>
+    /// </summary>
+    private async Task<(IReadOnlyList<LexicalMatch> Lexical, IReadOnlyList<VectorMatch> Semantic, IReadOnlyList<RoughSearchResult> Results)> SearchCoreAsync(
+        string query,
+        ResolvedOptions opts,
+        CancellationToken cancellationToken)
+    {
+        var (lexicalMatches, semanticMatches) = await RetrieveAsync(query, opts, cancellationToken).ConfigureAwait(false);
+
+        // When reranking, fuse a wider pool than we intend to return: the whole point is to promote a
+        // good candidate that fusion ranked just outside the cut.
+        var poolSize = opts.RerankCandidates > 0 ? Math.Max(opts.MaxResults, opts.RerankCandidates) : opts.MaxResults;
+        IReadOnlyList<RoughSearchResult> merged = MergeResults(lexicalMatches, semanticMatches, opts, poolSize);
+
+        if (opts.RerankCandidates > 0 && merged.Count > 1)
+        {
+            merged = await RerankAsync(query, merged, opts, cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<RoughSearchResult> final = merged.Count > opts.MaxResults
+            ? merged.Take(opts.MaxResults).ToList()
+            : merged;
+
+        return (lexicalMatches, semanticMatches, final);
+    }
+
+    /// <summary>
+    /// Reorder candidates with the cross-encoder. Failure is never fatal: the fused order is returned
+    /// unchanged, because a reranker is a refinement, not a gate.
+    /// </summary>
+    private async Task<List<RoughSearchResult>> RerankAsync(
+        string query,
+        IReadOnlyList<RoughSearchResult> candidates,
+        ResolvedOptions opts,
+        CancellationToken cancellationToken)
+    {
+        var client = _rerankerClient ??= new RerankerClient(opts.RerankServerUrl!);
+        var pool = candidates.Take(opts.RerankCandidates).ToList();
+
+        // Rerank on the enriched preview (semantic title + excerpt) rather than the whole chunk: it is
+        // what the index already treats as the chunk's "headline", and it keeps the prompt within the
+        // cross-encoder's window.
+        var documents = pool.Select(ToRerankDocument).ToList();
+
+        try
+        {
+            var scores = await client.ScoreAsync(query, documents, cancellationToken).ConfigureAwait(false);
+
+            var reordered = pool
+                .Select((result, index) => (Result: result, Score: index < scores.Length ? scores[index] : float.NegativeInfinity))
+                .OrderByDescending(pair => pair.Score)
+                .Select(pair => pair.Result)
+                .ToList();
+
+            // Keep anything beyond the reranked pool in its original relative order.
+            if (candidates.Count > pool.Count)
+            {
+                reordered.AddRange(candidates.Skip(pool.Count));
+            }
+
+            Console.Error.WriteLine($"[debug] reranked {pool.Count} candidate(s) via {client.BaseUrl}");
+            return reordered;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[search] WARNING: reranking failed ({ex.Message}); returning the fused order.");
+            return candidates.ToList();
+        }
+    }
+
+    private static string ToRerankDocument(RoughSearchResult result)
+    {
+        var text = !string.IsNullOrWhiteSpace(result.Preview) ? result.Preview : result.Signature;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            text = result.SymbolId;
+        }
+
+        const int MaxChars = 4000;
+        return text!.Length > MaxChars ? text[..MaxChars] : text;
     }
 
     /// <summary>True when the chunk's path lies inside one of the named mods' directories.</summary>
@@ -191,6 +284,7 @@ public sealed class RoughSearcher : IDisposable
             opts.Fusion.ToString(),
             opts.ModExpansion.ToString(),
             opts.ModPathBoost.ToString("F4", System.Globalization.CultureInfo.InvariantCulture),
+            opts.RerankCandidates.ToString(System.Globalization.CultureInfo.InvariantCulture),
             opts.LexicalWeight.ToString("F4", System.Globalization.CultureInfo.InvariantCulture),
             opts.SemanticWeight.ToString("F4", System.Globalization.CultureInfo.InvariantCulture));
 
@@ -203,7 +297,7 @@ public sealed class RoughSearcher : IDisposable
     public async Task<SearchDiagnostics> SearchWithDiagnosticsAsync(string query, RoughSearchOptions? options, CancellationToken cancellationToken = default)
     {
         var opts = Resolve(options);
-        var (lexicalMatches, semanticMatches) = await RetrieveAsync(query, opts, cancellationToken).ConfigureAwait(false);
+        var (lexicalMatches, semanticMatches, results) = await SearchCoreAsync(query, opts, cancellationToken).ConfigureAwait(false);
 
         var lexicalRanks = lexicalMatches
             .Select(m => new SearchCandidate(
@@ -217,7 +311,6 @@ public sealed class RoughSearcher : IDisposable
             .Select(m => new SearchCandidate(m.Entry.ItemId, m.Entry.SymbolId, m.Entry.Path, m.Score))
             .ToList();
 
-        var results = MergeResults(lexicalMatches, semanticMatches, opts);
         return new SearchDiagnostics(lexicalRanks, semanticRanks, results);
     }
 
@@ -358,7 +451,9 @@ public sealed class RoughSearcher : IDisposable
             o.ModExpansion ?? _config.ModExpansion,
             o.ModPathBoost ?? _config.ModPathBoost,
             o.MaxModMatches ?? _config.MaxModMatches,
-            o.MaxExpansionTerms ?? _config.MaxExpansionTerms);
+            o.MaxExpansionTerms ?? _config.MaxExpansionTerms,
+            o.RerankCandidates ?? _config.RerankCandidates,
+            o.RerankServerUrl ?? _config.RerankServerUrl);
     }
 
     private readonly record struct ResolvedOptions(
@@ -374,7 +469,9 @@ public sealed class RoughSearcher : IDisposable
         ModExpansionMode ModExpansion,
         double ModPathBoost,
         int MaxModMatches,
-        int MaxExpansionTerms);
+        int MaxExpansionTerms,
+        int RerankCandidates,
+        string? RerankServerUrl);
 
     private static float DotProduct(float[] a, ReadOnlyMemory<float> b)
     {
@@ -522,7 +619,7 @@ public sealed class RoughSearcher : IDisposable
         }
     }
 
-    private IReadOnlyList<RoughSearchResult> MergeResults(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts)
+    private IReadOnlyList<RoughSearchResult> MergeResults(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take)
     {
         if (opts.UseSemanticScoringOnly)
         {
@@ -547,7 +644,7 @@ public sealed class RoughSearcher : IDisposable
                     .Select(result => result!)
                     .ToList();
 
-                return FinalizeResults(lexicalOnly, opts);
+                return FinalizeResults(lexicalOnly, opts, take);
             }
 
             // Pure semantic ranking: ignore lexical scores completely.
@@ -565,12 +662,12 @@ public sealed class RoughSearcher : IDisposable
                 .Select(result => result!)
                 .ToList();
 
-            return FinalizeResults(ranked, opts);
+            return FinalizeResults(ranked, opts, take);
         }
 
         return opts.Fusion == FusionMode.Rrf
-            ? MergeRrf(lexical, semantic, opts)
-            : MergeWeightedSum(lexical, semantic, opts);
+            ? MergeRrf(lexical, semantic, opts, take)
+            : MergeWeightedSum(lexical, semantic, opts, take);
     }
 
     /// <summary>
@@ -579,7 +676,7 @@ public sealed class RoughSearcher : IDisposable
     /// so the previous "just add them" version ranked worse than semantic-only
     /// (docs/rag-upgrade-plan-2026-09.md §10.2).
     /// </summary>
-    private IReadOnlyList<RoughSearchResult> MergeWeightedSum(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts)
+    private IReadOnlyList<RoughSearchResult> MergeWeightedSum(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take)
     {
         var (lexMin, lexMax) = MinMax(lexical.Select(m => (double)m.Score));
         var (semMin, semMax) = MinMax(semantic.Select(m => (double)m.Score));
@@ -626,7 +723,8 @@ public sealed class RoughSearcher : IDisposable
                 .Where(result => result is not null)
                 .Select(result => result!)
                 .ToList(),
-            opts);
+            opts,
+            take);
     }
 
     /// <summary>
@@ -634,7 +732,7 @@ public sealed class RoughSearcher : IDisposable
     /// Scale-free, so it needs no normalization; a useful cross-check against
     /// <see cref="MergeWeightedSum"/>.
     /// </summary>
-    private IReadOnlyList<RoughSearchResult> MergeRrf(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts)
+    private IReadOnlyList<RoughSearchResult> MergeRrf(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts, int take)
     {
         const int RrfK = 60;
         var candidates = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
@@ -681,7 +779,8 @@ public sealed class RoughSearcher : IDisposable
                 .Where(result => result is not null)
                 .Select(result => result!)
                 .ToList(),
-            opts);
+            opts,
+            take);
     }
 
     private static (double Min, double Max) MinMax(IEnumerable<double> values)
@@ -708,7 +807,7 @@ public sealed class RoughSearcher : IDisposable
     /// excluded, then collapse duplicate <c>SymbolId</c> entries (the same mod shipped in two
     /// folders, a <c>private/</c> copy next to the public one, …).
     /// </summary>
-    private List<RoughSearchResult> FinalizeResults(List<RoughSearchResult> ranked, ResolvedOptions opts)
+    private List<RoughSearchResult> FinalizeResults(List<RoughSearchResult> ranked, ResolvedOptions opts, int take)
     {
         var filtered = new List<RoughSearchResult>(ranked.Count);
         foreach (var result in ranked)
@@ -723,7 +822,7 @@ public sealed class RoughSearcher : IDisposable
 
         if (!opts.DedupeBySymbolId)
         {
-            return filtered.Take(opts.MaxResults).ToList();
+            return filtered.Take(take).ToList();
         }
 
         var best = new Dictionary<string, RoughSearchResult>(StringComparer.OrdinalIgnoreCase);
@@ -738,7 +837,7 @@ public sealed class RoughSearcher : IDisposable
 
         return best.Values
             .OrderByDescending(result => result.Score)
-            .Take(opts.MaxResults)
+            .Take(take)
             .ToList();
     }
 
@@ -881,6 +980,7 @@ public sealed class RoughSearcher : IDisposable
     public void Dispose()
     {
         (_queryEmbeddingGenerator as IDisposable)?.Dispose();
+        _rerankerClient?.Dispose();
         _symbolIdParser.Dispose();
         _textParser.Dispose();
         _analyzer.Dispose();

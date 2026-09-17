@@ -957,3 +957,64 @@ if (_config.ForceRebuildEmbeddings || !VectorIndexExists())
 
 > 注：真实语料的增量 pass 会重建**整个图**（`GraphBuilder` 每次都全量重建，约 11 min），
 > 这是剩下的最大瓶颈 —— 已记入阶段 3，未在本次处理。
+
+---
+
+## 20. 任务 2.4 重排器：实现完成，**实测否决，保持默认关闭**（2026-09-17）
+
+### 20.1 动机（来自本项目的诊断数据）
+
+§11.3 的候选来源诊断：45 个期望项里 **10 个"捞到了但没排上来"**（排序问题）。
+这正好是交叉编码器的适用场景 —— 它把 query 和候选**拼在一起**打分，
+而不是比较两个各自独立生成的向量。所以值得实现，也值得实测。
+
+### 20.2 实现（不引入 sentence-transformers 5.x）
+
+**坑**：官方 Qwen3-Reranker 仓库的 `modules.json` 用的是 **ST 5.x** 模块路径
+（`sentence_transformers.cross_encoder.modules.logit_score.LogitScore`），而本机是 ST 3.4.1，
+**加载不了**。升级 ST 又会威胁到索引所依赖的嵌入服务 —— 所以直接用 `transformers` 按官方
+Qwen3-Reranker 配方实现：拼判定提示词 → 取末位 logits 在 `yes`(9693)/`no`(2152) 上的 softmax。
+
+**另外两个坑（实测才发现）**：
+
+| 坑 | 症状 | 修法 |
+|---|---|---|
+| **右 padding** | `logits[:, -1, :]` 对较短的序列读到的是 **pad 位置**，排序被打乱但仍返回"看起来合理"的概率 | `tokenizer.padding_side = "left"` + 按 `attention_mask` 取每行**最后一个真实位置** |
+| **没走 chat template** | 相关文档只给 **0.1373** 分 | 用模型自带的 `chat_template.jinja`：instruction 来自 **system** 消息、`query`/`document` 是**独立 role**、assistant 前缀后**带一个空 think 块**。改用后同一文档 **0.9747** |
+
+产物：`python/rerank_server.py`（`/health` + `/rerank`）、`python/smoke_rerank_server.py`
+（断言**排序**而不只是 200——提示词写坏也会返回像样的概率）、`Retrieval/RerankerClient.cs`、
+`RoughSearchConfig.RerankCandidates`（**0 = 关闭，默认值**）、`bench --rerank <n> --rerank-server <url>`。
+
+**降级设计**：重排是精修不是闸门 —— 服务不可达时告警并返回融合顺序，绝不让查询失败。
+候选池会放大到 `max(MaxResults, RerankCandidates)`，否则"把排在切点外的好候选提上来"无从谈起。
+
+顺带修了一个真不一致：`SearchAsync` 加了重排但 `SearchWithDiagnosticsAsync` 没加，
+于是带 `--diagnose` 的评测**测的是没重排的路径**（第一次测量因此看起来像个 no-op）。
+已抽出共用的 `SearchCoreAsync`。
+
+### 20.3 ⚠ 实测结论：**否决**
+
+40 条评测集，e5 + 融合 0.3/0.7，重排前 30：
+
+| | Recall@5 | Recall@10 | MRR | nDCG@10 | CP@10 | Hits@1 |
+|---|---|---|---|---|---|---|
+| 无重排 | 0.4750 | 0.5000 | **0.4042** | **0.4280** | **0.4042** | **14/40** |
+| **+ 重排 top-30** | **0.0750** | **0.1750** | **0.0648** | **0.0778** | **0.0496** | **1/40** |
+
+**18 条回退 / 1 条提升**（唯一"提升"是 df03 的 nDCG）。平均延迟 12.8 s/查询（CPU）。
+
+**为什么会这样**：本项目的查询绝大多数是**裸标识符**（`Need_Food`、`Gun_BoltActionRifle`、
+`xml:InteractionDef:RimTalkInteraction`），而 Qwen3-Reranker 的判定提示词是 **web 搜索**语义。
+单独测时它给一个自然语言句子的相关文档打 **0.9747**（排序正确），但对裸标识符**系统性地排错**
+—— query 侧没有自然语言意图，交叉编码器拿不到着力点。
+
+> 这正是计划里那句提醒的实证："独立测试显示重排在 5 类查询里 4 类打平或输给好嵌入 —— **别当默认**"。
+> **计划 §2.4 的验收条件是"只在评测集证明有提升时才默认开启"，本评测证明的是相反结论，所以保持关闭。**
+
+### 20.4 保留价值
+
+- 能力与测量口径都在（一行开关即可复现：`--rerank 30 --rerank-server ...`）
+- 换 Qwen3 嵌入之后**可以再测一次**：如果嵌入召回变强，重排的输入质量也跟着变，结论可能不同
+- 若将来要再试，最值得动的两个旋钮是**换成代码检索 instruction** 与**送完整 chunk 而不是 preview**
+  （当前送 `Preview`，它是给嵌入用的语义标题 + 截断摘录）

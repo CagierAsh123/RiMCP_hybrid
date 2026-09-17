@@ -102,6 +102,8 @@ public static class RetrievalBenchmark
         var (lexicalWeight, semanticWeight) = ParseWeights(GetOrDefault(options, "weights", "0.5,0.5"));
         var modExpansion = ParseModExpansion(GetOrDefault(options, "mod-expand", "none"));
         var modPathBoost = ParseDouble(options, "mod-boost", 0.0);
+        var rerankCandidates = ParseInt(options, "rerank", 0);
+        var rerankServer = GetOrDefault(options, "rerank-server", "");
 
         var queries = LoadQueries(queriesPath);
         if (queries.Count == 0)
@@ -142,7 +144,9 @@ public static class RetrievalBenchmark
             SemanticWeight = semanticWeight,
             Fusion = fusion,
             ModExpansion = modExpansion,
-            ModPathBoost = modPathBoost
+            ModPathBoost = modPathBoost,
+            RerankCandidates = rerankCandidates,
+            RerankServerUrl = string.IsNullOrWhiteSpace(rerankServer) ? null : rerankServer
         };
 
         var outcomes = new List<QueryOutcome>();
@@ -255,6 +259,8 @@ public static class RetrievalBenchmark
             fusion = useHybrid ? fusion.ToString() : "semantic-only",
             modExpansion = modExpansion.ToString(),
             modPathBoost,
+            rerankCandidates,
+            rerankServer = string.IsNullOrWhiteSpace(rerankServer) ? null : rerankServer,
             lexicalWeight = useHybrid ? lexicalWeight : 0,
             semanticWeight = useHybrid ? semanticWeight : 1,
             maxResults,
