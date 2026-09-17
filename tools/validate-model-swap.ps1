@@ -12,7 +12,7 @@
   4. 跑评测集并与旧基线对比（--compare），输出指标差异表 + 逐条回归/提升清单
 
 .PARAMETER EmbeddingServer
-  新模型的服务地址（换模型时通常是 5001，切完端口后是 5000）。
+  嵌入服务地址，默认生产端口 5000。换模型验证阶段可指向临时端口的实例。
 
 .PARAMETER Baseline
   要对比的旧基线 JSON。默认 tests\m1-fused-default.json —— 它用的是**与本次运行相同的配置**
@@ -36,7 +36,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$EmbeddingServer = 'http://127.0.0.1:5001',
+    [string]$EmbeddingServer = 'http://127.0.0.1:5000',
     [string]$Baseline = 'tests\m1-fused-default.json',
     [int]$ExpectedDim = 1024,
     [string]$Label = 'qwen3-embedding-0.6b',
