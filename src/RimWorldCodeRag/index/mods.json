@@ -78,9 +78,9 @@
         "ThinkTreeDef",
         "TerrainDef",
         "GenStepDef",
-        "MapGeneratorDef",
         "ScenPartDef",
         "VEF.OptionalFeatures.OptionalFeaturesDef",
+        "MapGeneratorDef",
         "AbilityDef"
       ],
       "DefNamePrefixes": [
@@ -103,9 +103,9 @@
         "ThinkTreeDef",
         "TerrainDef",
         "GenStepDef",
-        "MapGeneratorDef",
         "ScenPartDef",
         "VEF.OptionalFeatures.OptionalFeaturesDef",
+        "MapGeneratorDef",
         "AbilityDef",
         "VEF",
         "KCSG"
@@ -168,8 +168,8 @@
         "ScenPartDef",
         "Vehicles.VehicleBuildDef",
         "Vehicles.VehicleDef",
-        "VehicleMapFramework.MapVehicleEventDef",
-        "WorldObjectDef"
+        "WorldObjectDef",
+        "WeatherDef"
       ],
       "DefNamePrefixes": [
         "VMF_"
@@ -189,8 +189,8 @@
         "ScenPartDef",
         "Vehicles.VehicleBuildDef",
         "Vehicles.VehicleDef",
-        "VehicleMapFramework.MapVehicleEventDef",
         "WorldObjectDef",
+        "WeatherDef",
         "VMF"
       ]
     },
@@ -437,8 +437,8 @@
         "ThingCategoryDef",
         "GeneDef",
         "RecipeDef",
-        "TraderKindDef",
-        "HeadTypeDef"
+        "HeadTypeDef",
+        "DamageDef"
       ],
       "DefNamePrefixes": [
         "RK_"
@@ -456,8 +456,8 @@
         "ThingCategoryDef",
         "GeneDef",
         "RecipeDef",
-        "TraderKindDef",
         "HeadTypeDef",
+        "DamageDef",
         "RK"
       ]
     },
@@ -512,8 +512,8 @@
         "TormentMaster.Food",
         "TormentMaster.Jobs",
         "TormentMaster.Hediffs",
-        "TormentMaster.WaterPrison",
-        "TormentMaster.LiveTargetRange"
+        "TormentMaster.LiveTargetRange",
+        "TormentMaster.WaterPrison"
       ],
       "DefTypes": [
         "JoyGiverDef",
@@ -532,8 +532,8 @@
         "TormentMaster.Food",
         "TormentMaster.Jobs",
         "TormentMaster.Hediffs",
-        "TormentMaster.WaterPrison",
         "TormentMaster.LiveTargetRange",
+        "TormentMaster.WaterPrison",
         "JoyGiverDef",
         "JoyKindDef",
         "RecipeDef",
@@ -662,8 +662,8 @@
         "BackstoryDef",
         "StorytellerDef",
         "Mia.MiaAvatarDef",
-        "AnimationDef",
-        "TraitDef"
+        "TraitDef",
+        "AnimationDef"
       ],
       "DefNamePrefixes": [],
       "ChunkCount": 1315,
@@ -676,8 +676,8 @@
         "BackstoryDef",
         "StorytellerDef",
         "Mia.MiaAvatarDef",
-        "AnimationDef",
-        "TraitDef"
+        "TraitDef",
+        "AnimationDef"
       ]
     },
     {
@@ -823,9 +823,9 @@
         "RecipeDef",
         "EffecterDef",
         "DamageDef",
-        "AbilityDef",
         "RoyalTitleDef",
         "RuleDef",
+        "AbilityDef",
         "ResearchProjectDef",
         "ThingCategoryDef"
       ],
@@ -847,9 +847,9 @@
         "RecipeDef",
         "EffecterDef",
         "DamageDef",
-        "AbilityDef",
         "RoyalTitleDef",
         "RuleDef",
+        "AbilityDef",
         "ResearchProjectDef",
         "ThingCategoryDef",
         "YR"
@@ -942,8 +942,8 @@
         "KeyBindingDef",
         "AllowTool.ThingDesignatorDef",
         "AllowTool.ReverseDesignatorDef",
-        "WorkTypeDef",
         "DesignationDef",
+        "WorkTypeDef",
         "KeyBindingCategoryDef",
         "EffecterDef"
       ],
@@ -958,8 +958,8 @@
         "KeyBindingDef",
         "AllowTool.ThingDesignatorDef",
         "AllowTool.ReverseDesignatorDef",
-        "WorkTypeDef",
         "DesignationDef",
+        "WorkTypeDef",
         "KeyBindingCategoryDef",
         "EffecterDef"
       ]
@@ -1131,11 +1131,11 @@
         "ResearchProjectDef",
         "DamageDef",
         "HistoryEventDef",
+        "TipSetDef",
+        "PrisonerInteractionModeDef",
         "ThingCategoryDef",
         "ResearchTabDef",
-        "SurgeryOutcomeEffectDef",
-        "IssueDef",
-        "TipSetDef"
+        "SurgeryOutcomeEffectDef"
       ],
       "DefNamePrefixes": [
         "WCE2_"
@@ -1148,11 +1148,11 @@
         "ResearchProjectDef",
         "DamageDef",
         "HistoryEventDef",
+        "TipSetDef",
+        "PrisonerInteractionModeDef",
         "ThingCategoryDef",
         "ResearchTabDef",
         "SurgeryOutcomeEffectDef",
-        "IssueDef",
-        "TipSetDef",
         "WCE2"
       ]
     },
