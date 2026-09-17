@@ -902,3 +902,58 @@ if (_config.ForceRebuildEmbeddings || !VectorIndexExists())
 这一条是"自动增量 < 2 分钟"（计划 §0.1）从**看起来能跑**变成**真的正确**的差别。
 它也解释了为什么"改完代码后检索变差"这类问题很难查：检索器没坏、语料也在，
 **只是新代码没有向量**。
+
+---
+
+## 19. 任务 3.3 索引自动化：`index --watch`（2026-09-17）
+
+### 19.1 为什么现在才能做
+
+计划里 3.3 的验收是"改码 2 min 内生效"。但 §18 之前，增量跑索引**根本不给新 chunk 嵌入**，
+所以 `--watch` 只会让索引"看起来更新了、实际语义那一路全是旧数据"。
+§18 修完，`--watch` 才成立。
+
+### 19.2 实现
+
+`index --watch [--watch-debounce <秒>]`：
+
+1. 先跑一遍普通索引（保留用户传的 `--force`）
+2. `FileSystemWatcher` 监听源码根（只看 `.cs`/`.xml`，其它扩展名直接忽略）
+3. 事件合并成"脏标记 + 安静期"（默认 5 s）：编辑器保存一个文件会触发几十个事件，
+   必须去抖，否则会连续跑十几次索引
+4. 安静期结束跑一次增量 pass，然后继续等
+5. `Ctrl+C` 退出；**单次 pass 失败不会杀掉循环**（只打错误）
+6. `--force` 是**一次性**的：只作用于第一遍
+
+### 19.3 ⚠ 实测中抓到的 bug：force 标志跨 pass 残留
+
+第一次测出来的日志里，第二遍出现了 `[index] Forcing Lucene rebuild.` ——
+原因是 `IndexingPipeline` 拿到的是**同一个 config 对象**，而第一遍
+`ResolveExclusionFilter` 合法地把 `ForceRebuildLucene` 置了 true（因为刚创建 exclude.json）。
+这个标志**跨 pass 残留**，于是**每次改文件都会删掉并重建整个 Lucene 目录**：
+
+- 真语料上意味着"改一行代码 → 几分钟全量重建"（正好与"增量"相反）
+- 重建期间 Lucene 目录被删，正在读它的 MCP server 会直接坏掉
+
+修法：每遍 pass 前把三个 force 标志清零（`--force` 只作用于第一遍），并写进注释。
+
+```
+第二遍（修复后）：
+[index] exclusion: [...] (signature 332856a6cdfc)
+[chunker] 2 indexable files ...
+[index] Incremental embeddings: 2 new chunk(s) to embed, 1 stale row(s) to drop (existing 4 rows).
+[index] Vector index updated: 5 rows x 768d (added 2, dropped 1).
+[watch] reindexed in 0.1s at 22:42:55
+```
+
+**没有** "Forcing Lucene rebuild"，且新 chunk 拿到了向量。
+
+### 19.4 与计划目标的对照
+
+| 计划 §0.1 目标 | 现状 |
+|---|---|
+| 打开/关闭某 mod 源码：手动全量 81 min → **自动增量 < 2 min** | `--watch` + 增量嵌入已可；真实语料的增量耗时待测（小语料 0.1 s） |
+| 改码 2 min 内生效（§8 表 3.3） | 去抖 5 s + 增量 pass；**待用真实语料计时** |
+
+> 注：真实语料的增量 pass 会重建**整个图**（`GraphBuilder` 每次都全量重建，约 11 min），
+> 这是剩下的最大瓶颈 —— 已记入阶段 3，未在本次处理。

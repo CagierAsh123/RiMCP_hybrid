@@ -127,6 +127,7 @@ public static class Program
         var threads = int.TryParse(GetOrDefault(options, "threads", Environment.ProcessorCount.ToString()), out var parsedThreads) ? parsedThreads : Environment.ProcessorCount;
         var incremental = !options.ContainsKey("no-incremental");
         var forceValue = GetOrDefault(options, "force", "").ToLowerInvariant();
+        var watch = options.ContainsKey("watch");
 
         var config = new IndexingConfig
         {
@@ -177,11 +178,133 @@ public static class Program
         catch (Exception ex)
         {
             // Actionable messages (model dimension change, missing index, unreadable files) deserve a
-            // clean line, not a stack trace.
+            // clean line, not a stack trace. In watch mode a bad pass must not kill the loop.
             Console.Error.WriteLine($"[index] failed: {ex.Message}");
-            return 1;
+            if (!watch)
+            {
+                return 1;
+            }
         }
 
+        if (watch)
+        {
+            var quietSeconds = int.TryParse(GetOrDefault(options, "watch-debounce", "5"), out var parsedQuiet)
+                ? Math.Max(1, parsedQuiet)
+                : 5;
+            return await WatchAsync(config, quietSeconds);
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Keep the index fresh: watch the source root, debounce, then run an incremental pass
+    /// (plan task 3.3).
+    ///
+    /// <para>
+    /// The pass is the ordinary pipeline, which now also reconciles embeddings, so an edited file
+    /// gets a Lucene document, a graph node <b>and a vector</b> within seconds of being saved —
+    /// without it, edited code silently disappears from semantic search.
+    /// </para>
+    /// </summary>
+    private static async Task<int> WatchAsync(IndexingConfig config, int quietSeconds)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"[watch] watching {config.SourceRoot}");
+        Console.WriteLine($"[watch] debounce {quietSeconds}s; press Ctrl+C to stop");
+
+        using var cancellation = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cancellation.Cancel();
+        };
+
+        var dirty = new SemaphoreSlim(0);
+        var pending = 0;
+        using var watcher = new FileSystemWatcher(config.SourceRoot)
+        {
+            IncludeSubdirectories = true,
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.Size,
+            InternalBufferSize = 64 * 1024
+        };
+
+        void OnChange(object sender, FileSystemEventArgs e)
+        {
+            // Only .cs / .xml matter, and the watcher fires many events per save.
+            var extension = Path.GetExtension(e.FullPath);
+            if (!extension.Equals(".cs", StringComparison.OrdinalIgnoreCase) &&
+                !extension.Equals(".xml", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            if (Interlocked.Exchange(ref pending, 1) == 0)
+            {
+                dirty.Release();
+            }
+        }
+
+        watcher.Changed += OnChange;
+        watcher.Created += OnChange;
+        watcher.Deleted += OnChange;
+        watcher.Renamed += (s, e) => OnChange(s, e);
+        watcher.Error += (_, e) => Console.Error.WriteLine($"[watch] watcher error: {e.GetException().Message}");
+        watcher.EnableRaisingEvents = true;
+
+        while (!cancellation.IsCancellationRequested)
+        {
+            try
+            {
+                await dirty.WaitAsync(cancellation.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+
+            // Drain the burst: wait for a quiet period before doing any work.
+            while (!cancellation.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(quietSeconds), cancellation.Token).ConfigureAwait(false);
+                    break;
+                }
+                catch (OperationCanceledException)
+                {
+                    return 0;
+                }
+            }
+
+            Interlocked.Exchange(ref pending, 0);
+            var started = DateTime.Now;
+            try
+            {
+                // The config object is shared across passes, and the first pass legitimately sets
+                // ForceRebuildLucene (e.g. because the exclusion rules were just created). Left in
+                // place it makes EVERY watched change delete and rebuild the whole Lucene directory —
+                // the opposite of incremental, and it briefly leaves the index unreadable.
+                // Force flags are therefore one-shot: they apply to the initial pass only.
+                config.ForceRebuildLucene = false;
+                config.ForceRebuildEmbeddings = false;
+                config.ForceRebuildGraph = false;
+
+                var pipeline = new IndexingPipeline(config);
+                await pipeline.RunAsync(cancellation.Token).ConfigureAwait(false);
+                Console.WriteLine($"[watch] reindexed in {(DateTime.Now - started).TotalSeconds:F1}s at {started:HH:mm:ss}");
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[watch] reindex failed: {ex.Message}");
+            }
+        }
+
+        Console.WriteLine("[watch] stopped");
         return 0;
     }
 

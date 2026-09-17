@@ -519,3 +519,4 @@ RimWorldData/
 nul
 # Integration-test scratch space (tools/test-incremental-embed.ps1)
 local_build/incremental-embed-test/
+local_build/watch-test/
