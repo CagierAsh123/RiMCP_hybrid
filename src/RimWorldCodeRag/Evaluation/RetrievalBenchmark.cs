@@ -696,14 +696,26 @@ public static class RetrievalBenchmark
             }
 
             var beforeRecall = before.GetProperty("recall10").GetDouble();
+            var beforeNdcg = before.TryGetProperty("ndcg10", out var ndcgElement) ? ndcgElement.GetDouble() : 0;
             var afterRecall = Recall(outcome, 10);
-            if (afterRecall < beforeRecall - 1e-9)
+            var afterNdcg = Ndcg(outcome, 10);
+
+            var recallDelta = afterRecall - beforeRecall;
+            var ndcgDelta = afterNdcg - beforeNdcg;
+
+            // Recall first; when recall is unchanged, fall back to nDCG so that a pure *ranking*
+            // improvement (which is what fusion and reranking produce) is still visible per query.
+            var improved = recallDelta > 1e-9 || (Math.Abs(recallDelta) <= 1e-9 && ndcgDelta > 1e-3);
+            var worsened = recallDelta < -1e-9 || (Math.Abs(recallDelta) <= 1e-9 && ndcgDelta < -1e-3);
+            var detail = $"R@10 {beforeRecall:F2}->{afterRecall:F2}, nDCG {beforeNdcg:F3}->{afterNdcg:F3}";
+
+            if (worsened)
             {
-                regressions.Add($"{outcome.Source.Id} ({beforeRecall:F2} -> {afterRecall:F2})");
+                regressions.Add($"{outcome.Source.Id} ({detail})");
             }
-            else if (afterRecall > beforeRecall + 1e-9)
+            else if (improved)
             {
-                gains.Add($"{outcome.Source.Id} ({beforeRecall:F2} -> {afterRecall:F2})");
+                gains.Add($"{outcome.Source.Id} ({detail})");
             }
         }
 
