@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
   Resolve candidate RimWorld symbol/Def names to the exact symbolId form used by RiMCP's index.

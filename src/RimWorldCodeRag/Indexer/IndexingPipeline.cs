@@ -1,6 +1,8 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -121,10 +123,19 @@ public sealed class IndexingPipeline
     private async Task GenerateEmbeddingsAsync(IReadOnlyList<ChunkRecord> chunks, IEmbeddingGenerator generator, string directory, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "vectors.jsonl");
-        using var writer = new StreamWriter(path);
+        var binPath = Path.Combine(directory, VectorBinaryFormat.BinFileName);
+        var metaPath = Path.Combine(directory, VectorBinaryFormat.MetaFileName);
+
+        // Header is written as a placeholder and patched once dim/count are known, so the float
+        // payload streams straight to disk (no temp file, no full buffering).
+        using var bin = new FileStream(binPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1 << 20);
+        VectorBinaryFormat.WriteHeader(bin, 0, 0);
+
+        using var meta = new StreamWriter(metaPath, append: false, new UTF8Encoding(false), 1 << 20);
 
         var processed = 0;
+        var dimensions = 0;
+        var metaBuffer = new StringBuilder(256);
         var batchSize = generator.PreferredBatchSize;
 
         for (var i = 0; i < chunks.Count; i += batchSize)
@@ -138,21 +149,79 @@ public sealed class IndexingPipeline
             {
                 var chunk = batch[j];
                 var vector = vectors[j];
-                var json = JsonSerializer.Serialize(new
+
+                if (vector.Length == 0)
                 {
-                    itemId = chunk.ItemId,
-                    symbolId = chunk.SymbolId,
-                    path = chunk.Path,
-                    signature = chunk.Signature,
-                    preview = chunk.Preview,
-                    vector = vector
-                });
-                await writer.WriteLineAsync(json);
+                    Console.Error.WriteLine($"[index] skipping '{chunk.ItemId}': empty embedding");
+                    continue;
+                }
+
+                if (dimensions == 0)
+                {
+                    dimensions = vector.Length;
+                }
+                else if (vector.Length != dimensions)
+                {
+                    Console.Error.WriteLine($"[index] skipping '{chunk.ItemId}': dimension {vector.Length} != {dimensions}");
+                    continue;
+                }
+
+                bin.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(vector.AsSpan()));
+
+                metaBuffer.Clear();
+                metaBuffer.Append("{\"itemId\":");
+                AppendJsonString(metaBuffer, chunk.ItemId);
+                metaBuffer.Append(",\"symbolId\":");
+                AppendJsonString(metaBuffer, chunk.SymbolId);
+                metaBuffer.Append(",\"path\":");
+                AppendJsonString(metaBuffer, chunk.Path);
+                metaBuffer.Append('}');
+                await meta.WriteLineAsync(metaBuffer.ToString()).ConfigureAwait(false);
+
                 processed++;
             }
             Console.Write($"\r[index] Generated {processed}/{chunks.Count} embeddings...");
         }
+
+        await meta.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+        if (dimensions > 0 && processed > 0)
+        {
+            bin.Position = 0;
+            VectorBinaryFormat.WriteHeader(bin, dimensions, processed);
+        }
+
         Console.WriteLine();
+        Console.WriteLine($"[index] Wrote {VectorBinaryFormat.Describe(dimensions, processed)} to {binPath}");
+    }
+
+    private static void AppendJsonString(StringBuilder builder, string value)
+    {
+        builder.Append('"');
+        foreach (var ch in value)
+        {
+            switch (ch)
+            {
+                case '"': builder.Append("\\\""); break;
+                case '\\': builder.Append("\\\\"); break;
+                case '\n': builder.Append("\\n"); break;
+                case '\r': builder.Append("\\r"); break;
+                case '\t': builder.Append("\\t"); break;
+                default:
+                    if (ch < ' ')
+                    {
+                        builder.Append("\\u").Append(((int)ch).ToString("x4", CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        builder.Append(ch);
+                    }
+
+                    break;
+            }
+        }
+
+        builder.Append('"');
     }
 
     /// <summary>
@@ -212,6 +281,8 @@ public sealed class IndexingPipeline
     }
 
     private bool LuceneIndexExists() => Directory.Exists(_config.LuceneIndexPath) && Directory.EnumerateFiles(_config.LuceneIndexPath).Any();
-    private bool VectorIndexExists() => Directory.Exists(_config.VectorIndexPath) && File.Exists(Path.Combine(_config.VectorIndexPath, "vectors.jsonl"));
+
+    private bool VectorIndexExists() => Directory.Exists(_config.VectorIndexPath) && VectorIndex.Exists(_config.VectorIndexPath);
+
     private bool GraphExists() => File.Exists(_config.GraphPath + ".nodes.tsv");
 }

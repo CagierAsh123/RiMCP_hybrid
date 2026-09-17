@@ -57,9 +57,22 @@ public static class RetrievalBenchmark
         List<int> HitRanks,
         List<int> RelaxedHitRanks,
         List<string> MissingExpected,
+        List<ExpectedProvenance> Provenance,
         double LatencyMs);
 
     private sealed record ResultRow(int Rank, string ItemId, string SymbolId, double Score, string Path, string? Signature);
+
+    /// <summary>Per-expected-item provenance: which leg (if any) carried it, and where it landed.</summary>
+    private sealed record ExpectedProvenance(string Expected, int? LexicalRank, int? SemanticRank, int? FusedRank)
+    {
+        public string Leg => (LexicalRank, SemanticRank) switch
+        {
+            (not null, not null) => "both",
+            (not null, null) => "lexical-only",
+            (null, not null) => "semantic-only",
+            _ => "absent"
+        };
+    }
 
     public static async Task<int> RunAsync(Dictionary<string, string> options)
     {
@@ -82,6 +95,11 @@ public static class RetrievalBenchmark
         var useHybrid = options.ContainsKey("hybrid");
         var noExclude = options.ContainsKey("no-exclude");
         var noDedupe = options.ContainsKey("no-dedupe");
+        var diagnose = options.ContainsKey("diagnose");
+        var fusion = GetOrDefault(options, "fusion", "weighted").Equals("rrf", StringComparison.OrdinalIgnoreCase)
+            ? FusionMode.Rrf
+            : FusionMode.WeightedSum;
+        var (lexicalWeight, semanticWeight) = ParseWeights(GetOrDefault(options, "weights", "0.5,0.5"));
 
         var queries = LoadQueries(queriesPath);
         if (queries.Count == 0)
@@ -105,82 +123,105 @@ public static class RetrievalBenchmark
             }
         }
 
-        // One searcher per distinct `kind` so the (expensive) index load happens at most 3 times.
-        var groups = queries.GroupBy(q => q.Kind ?? string.Empty, StringComparer.OrdinalIgnoreCase).ToList();
+        // One searcher for the whole run: `kind` is a per-request override, so the index is
+        // loaded exactly once (this is also a direct check that task 1.2 holds).
+        var config = new RoughSearchConfig
+        {
+            LuceneIndexPath = Path.GetFullPath(lucene),
+            VectorIndexPath = Path.GetFullPath(vec),
+            EmbeddingServerUrl = string.IsNullOrWhiteSpace(embeddingServerUrl) ? null : embeddingServerUrl,
+            MaxResults = maxResults,
+            LexicalCandidates = lexicalCandidates,
+            SemanticCandidates = semanticCandidates,
+            ExclusionFilter = exclusion,
+            DedupeBySymbolId = !noDedupe,
+            UseSemanticScoringOnly = !useHybrid,
+            LexicalWeight = lexicalWeight,
+            SemanticWeight = semanticWeight,
+            Fusion = fusion
+        };
+
         var outcomes = new List<QueryOutcome>();
 
-        foreach (var group in groups)
+        var loadWatch = Stopwatch.StartNew();
+        using var searcher = new RoughSearcher(config);
+        loadWatch.Stop();
+        Console.WriteLine($"[bench] index loaded once in {loadWatch.Elapsed.TotalSeconds:F2}s (kind is now a per-request override)");
+
+        for (var i = 0; i < warmup; i++)
         {
-            var kind = string.IsNullOrEmpty(group.Key) ? null : group.Key;
-            var config = new RoughSearchConfig
+            await searcher.SearchAsync("warmup CompPowerTrader").ConfigureAwait(false);
+        }
+
+        foreach (var query in queries)
+        {
+            var requestOptions = new RoughSearchOptions
             {
-                LuceneIndexPath = Path.GetFullPath(lucene),
-                VectorIndexPath = Path.GetFullPath(vec),
-                EmbeddingServerUrl = string.IsNullOrWhiteSpace(embeddingServerUrl) ? null : embeddingServerUrl,
-                MaxResults = maxResults,
-                LexicalCandidates = lexicalCandidates,
-                SemanticCandidates = semanticCandidates,
-                Kind = kind,
-                ExclusionFilter = exclusion,
-                DedupeBySymbolId = !noDedupe,
-                UseSemanticScoringOnly = !useHybrid
+                Kind = query.Kind,
+                MaxResults = maxResults
             };
 
-            var loadWatch = Stopwatch.StartNew();
-            using var searcher = new RoughSearcher(config);
-            loadWatch.Stop();
-            Console.WriteLine($"[bench] searcher loaded for kind='{kind ?? "all"}' in {loadWatch.Elapsed.TotalSeconds:F2}s");
-
-            for (var i = 0; i < warmup; i++)
+            var watch = Stopwatch.StartNew();
+            IReadOnlyList<RoughSearchResult> results;
+            SearchDiagnostics? diagnostics = null;
+            try
             {
-                await searcher.SearchAsync("warmup CompPowerTrader").ConfigureAwait(false);
+                if (diagnose)
+                {
+                    diagnostics = await searcher.SearchWithDiagnosticsAsync(query.Query, requestOptions).ConfigureAwait(false);
+                    results = diagnostics.Results;
+                }
+                else
+                {
+                    results = await searcher.SearchAsync(query.Query, requestOptions).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[bench] query '{query.Id}' failed: {ex.Message}");
+                results = Array.Empty<RoughSearchResult>();
             }
 
-            foreach (var query in group)
+            watch.Stop();
+
+            var rows = results
+                .Take(maxResults)
+                .Select((r, index) => new ResultRow(index + 1, r.ItemId, r.SymbolId, r.Score, r.Path, r.Signature))
+                .ToList();
+
+            var hitRanks = new List<int>();
+            var relaxedHitRanks = new List<int>();
+            var missing = new List<string>();
+            var provenance = new List<ExpectedProvenance>();
+            foreach (var expected in query.Expected)
             {
-                var watch = Stopwatch.StartNew();
-                IReadOnlyList<RoughSearchResult> results;
-                try
+                var rank = rows.FindIndex(row => Matches(row, expected));
+                if (rank < 0)
                 {
-                    results = await searcher.SearchAsync(query.Query).ConfigureAwait(false);
+                    missing.Add(expected);
                 }
-                catch (Exception ex)
+                else
                 {
-                    Console.Error.WriteLine($"[bench] query '{query.Id}' failed: {ex.Message}");
-                    results = Array.Empty<RoughSearchResult>();
+                    hitRanks.Add(rank + 1);
                 }
 
-                watch.Stop();
-
-                var rows = results
-                    .Take(maxResults)
-                    .Select((r, index) => new ResultRow(index + 1, r.ItemId, r.SymbolId, r.Score, r.Path, r.Signature))
-                    .ToList();
-
-                var hitRanks = new List<int>();
-                var relaxedHitRanks = new List<int>();
-                var missing = new List<string>();
-                foreach (var expected in query.Expected)
+                var relaxedRank = rows.FindIndex(row => Matches(row, expected) || IsMemberOf(row, expected));
+                if (relaxedRank >= 0)
                 {
-                    var rank = rows.FindIndex(row => Matches(row, expected));
-                    if (rank < 0)
-                    {
-                        missing.Add(expected);
-                    }
-                    else
-                    {
-                        hitRanks.Add(rank + 1);
-                    }
-
-                    var relaxedRank = rows.FindIndex(row => Matches(row, expected) || IsMemberOf(row, expected));
-                    if (relaxedRank >= 0)
-                    {
-                        relaxedHitRanks.Add(relaxedRank + 1);
-                    }
+                    relaxedHitRanks.Add(relaxedRank + 1);
                 }
 
-                outcomes.Add(new QueryOutcome(query, rows, hitRanks, relaxedHitRanks, missing, watch.Elapsed.TotalMilliseconds));
+                if (diagnostics is not null)
+                {
+                    provenance.Add(new ExpectedProvenance(
+                        expected,
+                        RankIn(diagnostics.Lexical, expected),
+                        RankIn(diagnostics.Semantic, expected),
+                        rank >= 0 ? rank + 1 : null));
+                }
             }
+
+            outcomes.Add(new QueryOutcome(query, rows, hitRanks, relaxedHitRanks, missing, provenance, watch.Elapsed.TotalMilliseconds));
         }
 
         var report = BuildReport(label, queries, outcomes, labelProblems, new
@@ -192,6 +233,9 @@ public static class RetrievalBenchmark
             exclusionDisabled = noExclude,
             dedupeBySymbolId = !noDedupe,
             useSemanticScoringOnly = !useHybrid,
+            fusion = useHybrid ? fusion.ToString() : "semantic-only",
+            lexicalWeight = useHybrid ? lexicalWeight : 0,
+            semanticWeight = useHybrid ? semanticWeight : 1,
             maxResults,
             lexicalCandidates,
             semanticCandidates,
@@ -211,6 +255,11 @@ public static class RetrievalBenchmark
         }
 
         PrintSummary(label, outcomes);
+
+        if (diagnose)
+        {
+            PrintProvenanceSummary(outcomes);
+        }
 
         if (!string.IsNullOrWhiteSpace(comparePath))
         {
@@ -327,6 +376,14 @@ public static class RetrievalBenchmark
                 note = o.Source.Note,
                 expected = o.Source.Expected,
                 missingExpected = o.MissingExpected,
+                provenance = o.Provenance.Count == 0 ? null : o.Provenance.Select(p => new
+                {
+                    p.Expected,
+                    lexicalRank = p.LexicalRank,
+                    semanticRank = p.SemanticRank,
+                    fusedRank = p.FusedRank,
+                    leg = p.Leg
+                }),
                 hitRanks = o.HitRanks,
                 latencyMs = Math.Round(o.LatencyMs, 1),
                 recall5 = Recall(o, 5),
@@ -453,23 +510,40 @@ public static class RetrievalBenchmark
     }
 
     private static bool Matches(ResultRow row, string expected)
+        => MatchesId(row.ItemId, row.SymbolId, expected);
+
+    private static bool MatchesId(string itemId, string symbolId, string expected)
     {
-        if (string.Equals(row.ItemId, expected, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(itemId, expected, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        if (string.Equals(row.SymbolId, expected, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(symbolId, expected, StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        if (row.ItemId.StartsWith(expected + "@", StringComparison.OrdinalIgnoreCase))
+        if (itemId.StartsWith(expected + "@", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        return row.SymbolId.EndsWith("." + expected, StringComparison.OrdinalIgnoreCase);
+        return symbolId.EndsWith("." + expected, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>1-based rank of the expected value inside a raw leg's candidate list, or null when absent.</summary>
+    private static int? RankIn(IReadOnlyList<SearchCandidate> candidates, string expected)
+    {
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            if (MatchesId(candidates[i].ItemId, candidates[i].SymbolId, expected))
+            {
+                return i + 1;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -526,6 +600,48 @@ public static class RetrievalBenchmark
         }
     }
 
+    /// <summary>
+    /// Split the expected items by where they were available, which is what tells apart a
+    /// candidate-generation problem from a ranking problem.
+    /// </summary>
+    private static void PrintProvenanceSummary(List<QueryOutcome> outcomes)
+    {
+        var all = outcomes.SelectMany(o => o.Provenance).ToList();
+        if (all.Count == 0)
+        {
+            return;
+        }
+
+        var both = all.Count(p => p.Leg == "both");
+        var lexicalOnly = all.Count(p => p.Leg == "lexical-only");
+        var semanticOnly = all.Count(p => p.Leg == "semantic-only");
+        var absent = all.Count(p => p.Leg == "absent");
+        var inFused = all.Count(p => p.FusedRank is not null);
+        var presentButLost = both + lexicalOnly + semanticOnly - inFused;
+
+        Console.WriteLine();
+        Console.WriteLine("=== candidate provenance (per expected item) ===");
+        Console.WriteLine($"  total expected        {all.Count}");
+        Console.WriteLine($"  in lexical leg only   {lexicalOnly}");
+        Console.WriteLine($"  in semantic leg only  {semanticOnly}");
+        Console.WriteLine($"  in both legs          {both}");
+        Console.WriteLine($"  ABSENT from both legs {absent}   <- candidate generation problem; fusion/rerank cannot fix");
+        Console.WriteLine($"  present but not in top-N {presentButLost}   <- ranking problem; fusion/rerank CAN fix");
+
+        var missingByCategory = all
+            .Where(p => p.Leg == "absent")
+            .GroupBy(p => p.Expected)
+            .Count();
+
+        Console.WriteLine();
+        Console.WriteLine($"  absent list ({missingByCategory} item(s), by query):");
+        foreach (var outcome in outcomes.Where(o => o.Provenance.Any(p => p.Leg == "absent")))
+        {
+            var items = outcome.Provenance.Where(p => p.Leg == "absent").Select(p => p.Expected);
+            Console.WriteLine($"    {outcome.Source.Id,-6} [{outcome.Source.Category}] {string.Join(", ", items)}");
+        }
+    }
+
     private static void PrintComparison(List<QueryOutcome> outcomes, string comparePath)
     {
         var previous = JsonSerializer.Deserialize<JsonElement>(File.ReadAllText(comparePath));
@@ -576,6 +692,20 @@ public static class RetrievalBenchmark
 
     private static int ParseInt(Dictionary<string, string> options, string key, int fallback)
         => options.TryGetValue(key, out var value) && int.TryParse(value, out var parsed) ? parsed : fallback;
+
+    /// <summary>Parse "--weights 0.5,0.5" into (lexical, semantic).</summary>
+    private static (double Lexical, double Semantic) ParseWeights(string value)
+    {
+        var parts = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 ||
+            !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var lexical) ||
+            !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var semantic))
+        {
+            throw new InvalidOperationException($"--weights expects 'lex,sem' (e.g. 0.5,0.5) but got '{value}'.");
+        }
+
+        return (lexical, semantic);
+    }
 
     private static string GetOrDefault(Dictionary<string, string> options, string key, string fallback)
         => options.TryGetValue(key, out var value) ? value : fallback;

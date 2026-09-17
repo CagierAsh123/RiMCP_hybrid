@@ -18,19 +18,22 @@ namespace RimWorldCodeRag.Retrieval;
 public sealed class RoughSearcher : IDisposable
 {
     private const float IdentifierBoost = 2.5f;
-    private const float MixedBoost = 1.0f;
-    private const float SemanticWeight = 2.0f;
 
     private readonly RoughSearchConfig _config;
     private readonly FSDirectory _directory;
     private readonly DirectoryReader _reader;
     private readonly IndexSearcher _searcher;
     private readonly StandardAnalyzer _analyzer;
-    private readonly QueryParser _symbolIdParser;
-    private readonly QueryParser _textParser;
+
+    // Lucene's QueryParser carries mutable parse state, so it is NOT safe to share across threads.
+    // A searcher instance is now long-lived and may serve concurrent requests, so each thread
+    // gets its own parser.
+    private readonly ThreadLocal<QueryParser> _symbolIdParser;
+    private readonly ThreadLocal<QueryParser> _textParser;
     private readonly VectorIndex _vectorIndex;
     private readonly IQueryEmbeddingGenerator _queryEmbeddingGenerator;
     private readonly PathExclusionFilter _exclusionFilter;
+    private readonly ResultCache _resultCache = new(200);
 
     public RoughSearcher(RoughSearchConfig config)
     {
@@ -43,31 +46,107 @@ public sealed class RoughSearcher : IDisposable
         _reader = DirectoryReader.Open(_directory);
         _searcher = new IndexSearcher(_reader);
         _analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
-        
-        _symbolIdParser = new QueryParser(LuceneVersion.LUCENE_48, LuceneWriter.FieldSymbolId, _analyzer)
-        {
-            DefaultOperator = Operator.OR
-        };
 
-        _textParser = new QueryParser(LuceneVersion.LUCENE_48, LuceneWriter.FieldText, _analyzer)
+        _symbolIdParser = new ThreadLocal<QueryParser>(() => new QueryParser(LuceneVersion.LUCENE_48, LuceneWriter.FieldSymbolId, _analyzer)
         {
             DefaultOperator = Operator.OR
-        };
+        });
+
+        _textParser = new ThreadLocal<QueryParser>(() => new QueryParser(LuceneVersion.LUCENE_48, LuceneWriter.FieldText, _analyzer)
+        {
+            DefaultOperator = Operator.OR
+        });
 
         _vectorIndex = VectorIndex.Load(_config.VectorIndexPath, _exclusionFilter);
         _queryEmbeddingGenerator = CreateQueryEmbeddingGenerator();
     }
 
-    public async Task<IReadOnlyList<RoughSearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
+    /// <summary>A snapshot of the searcher's defaults — used for diagnostics and for callers that pass no options.</summary>
+    public RoughSearchOptions DefaultOptions => RoughSearchOptions.FromConfig(_config);
+
+    public Task<IReadOnlyList<RoughSearchResult>> SearchAsync(string query, CancellationToken cancellationToken = default)
+        => SearchAsync(query, null, cancellationToken);
+
+    /// <summary>
+    /// Search with optional per-request overrides of <c>kind</c> / <c>max_results</c> / candidate counts.
+    /// Null values inherit from the searcher's configuration, so the same instance can serve
+    /// concurrent requests with different parameters.
+    /// </summary>
+    public async Task<IReadOnlyList<RoughSearchResult>> SearchAsync(string query, RoughSearchOptions? options, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
             return Array.Empty<RoughSearchResult>();
         }
 
+        var opts = Resolve(options);
+
+        // Result cache (task 1.5): keyed on everything that can change the output.
+        var cacheKey = BuildCacheKey(query, opts);
+        if (_resultCache.TryGet(cacheKey, out var cached))
+        {
+            Console.Error.WriteLine($"[debug] result-cache hit ({_resultCache.Count} entries)");
+            return cached;
+        }
+
+        var (lexicalMatches, semanticMatches) = await RetrieveAsync(query, opts, cancellationToken).ConfigureAwait(false);
+
+        Console.Error.WriteLine($"[debug] Lexical: {lexicalMatches.Count}, Semantic (full-corpus): {semanticMatches.Count}");
+
+        var merged = MergeResults(lexicalMatches, semanticMatches, opts);
+        _resultCache.Add(cacheKey, merged);
+        return merged;
+    }
+
+    private static string BuildCacheKey(string query, ResolvedOptions opts)
+        => string.Join('\u0001',
+            query,
+            opts.Kind ?? string.Empty,
+            opts.MaxResults.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            opts.LexicalCandidates.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            opts.SemanticCandidates.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            opts.DedupeBySymbolId.ToString(),
+            opts.UseSemanticScoringOnly.ToString(),
+            opts.Fusion.ToString(),
+            opts.LexicalWeight.ToString("F4", System.Globalization.CultureInfo.InvariantCulture),
+            opts.SemanticWeight.ToString("F4", System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>
+    /// Same as <see cref="SearchAsync(string, RoughSearchOptions?, CancellationToken)"/> but also exposes
+    /// where each candidate came from. This separates "the candidate pool never contained the answer"
+    /// (a recall/embedding problem) from "it was there but ranked badly" (a fusion/rerank problem) —
+    /// without it, fusion tuning is guesswork.
+    /// </summary>
+    public async Task<SearchDiagnostics> SearchWithDiagnosticsAsync(string query, RoughSearchOptions? options, CancellationToken cancellationToken = default)
+    {
+        var opts = Resolve(options);
+        var (lexicalMatches, semanticMatches) = await RetrieveAsync(query, opts, cancellationToken).ConfigureAwait(false);
+
+        var lexicalRanks = lexicalMatches
+            .Select(m => new SearchCandidate(
+                m.ItemId,
+                m.Document.Get(LuceneWriter.FieldSymbolId) ?? m.ItemId,
+                m.Document.Get(LuceneWriter.FieldPath) ?? string.Empty,
+                m.Score))
+            .ToList();
+
+        var semanticRanks = semanticMatches
+            .Select(m => new SearchCandidate(m.Entry.ItemId, m.Entry.SymbolId, m.Entry.Path, m.Score))
+            .ToList();
+
+        var results = MergeResults(lexicalMatches, semanticMatches, opts);
+        return new SearchDiagnostics(lexicalRanks, semanticRanks, results);
+    }
+
+    /// <summary>Run both retrieval legs in parallel and return their raw candidate lists.</summary>
+    private async Task<(IReadOnlyList<LexicalMatch> Lexical, IReadOnlyList<VectorMatch> Semantic)> RetrieveAsync(
+        string query,
+        ResolvedOptions opts,
+        CancellationToken cancellationToken)
+    {
         // Dual-path retrieval: run lexical and full-corpus semantic search in parallel.
         // This ensures that items missed by BM25 can still be found by vector similarity.
-        var lexicalTask = Task.Run(() => SearchLexical(query, _config.LexicalCandidates), cancellationToken);
+        var lexicalTask = Task.Run(() => SearchLexical(query, opts.LexicalCandidates, opts.Kind), cancellationToken);
         var embeddingValueTask = _queryEmbeddingGenerator.EmbedAsync(query, cancellationToken);
 
         // ValueTask → Task so we can await both in parallel
@@ -86,7 +165,7 @@ public sealed class RoughSearcher : IDisposable
         {
             // Apply kind filter to vector entries (xml: prefix = XML, otherwise = C#)
             var allEntries = _vectorIndex.Entries;
-            var kindLower = _config.Kind?.ToLowerInvariant();
+            var kindLower = opts.Kind?.ToLowerInvariant();
             var wantCSharp = kindLower == "csharp" || kindLower == "cs";
             var wantXml = kindLower == "def" || kindLower == "xml";
 
@@ -123,7 +202,7 @@ public sealed class RoughSearcher : IDisposable
             });
 
             // Take top candidates by score
-            var semanticTake = Math.Max(_config.MaxResults * 3, _config.SemanticCandidates);
+            var semanticTake = Math.Max(opts.MaxResults * 3, opts.SemanticCandidates);
             var topIndices = candidateIndices
                 .OrderByDescending(i => scores[i])
                 .Take(semanticTake)
@@ -140,34 +219,55 @@ public sealed class RoughSearcher : IDisposable
             semanticMatches = matches;
         }
 
-        Console.Error.WriteLine($"[debug] Lexical: {lexicalMatches.Count}, Semantic (full-corpus): {semanticMatches.Count}");
-
-        return MergeResults(lexicalMatches, semanticMatches, _config.MaxResults);
+        return (lexicalMatches, semanticMatches);
     }
 
-    private static float DotProduct(float[] a, IReadOnlyList<float> b)
+    private ResolvedOptions Resolve(RoughSearchOptions? options)
     {
-        if (a.Length != b.Count)
+        var o = options ?? RoughSearchOptions.FromConfig(_config);
+        return new ResolvedOptions(
+            o.Kind ?? _config.Kind,
+            o.MaxResults ?? _config.MaxResults,
+            o.LexicalCandidates ?? _config.LexicalCandidates,
+            o.SemanticCandidates ?? _config.SemanticCandidates,
+            o.DedupeBySymbolId ?? _config.DedupeBySymbolId,
+            o.UseSemanticScoringOnly ?? _config.UseSemanticScoringOnly,
+            o.LexicalWeight ?? _config.LexicalWeight,
+            o.SemanticWeight ?? _config.SemanticWeight,
+            o.Fusion ?? _config.Fusion);
+    }
+
+    private readonly record struct ResolvedOptions(
+        string? Kind,
+        int MaxResults,
+        int LexicalCandidates,
+        int SemanticCandidates,
+        bool DedupeBySymbolId,
+        bool UseSemanticScoringOnly,
+        double LexicalWeight,
+        double SemanticWeight,
+        FusionMode Fusion);
+
+    private static float DotProduct(float[] a, ReadOnlyMemory<float> b)
+    {
+        if (a.Length != b.Length)
         {
             return 0f;
         }
 
 #if NET6_0_OR_GREATER
-        // Use SIMD-accelerated operations when available
-        if (b is float[] bArray)
-        {
-            return System.Numerics.Tensors.TensorPrimitives.Dot(a, bArray);
-        }
-#endif
-
-        // Fallback to manual computation
+        // SIMD-accelerated; `b` is a zero-copy slice of the packed vectors.bin payload.
+        return System.Numerics.Tensors.TensorPrimitives.Dot(a, b.Span);
+#else
+        var span = b.Span;
         double sum = 0;
         for (var i = 0; i < a.Length; i++)
         {
-            sum += a[i] * b[i];
+            sum += a[i] * span[i];
         }
 
         return (float)sum;
+#endif
     }
 
     /// <summary>
@@ -193,7 +293,7 @@ public sealed class RoughSearcher : IDisposable
         return string.Join(' ', expanded);
     }
 
-    private IReadOnlyList<LexicalMatch> SearchLexical(string query, int take)
+    private IReadOnlyList<LexicalMatch> SearchLexical(string query, int take, string? kind)
     {
         var booleanQuery = new BooleanQuery();
         var expandedQuery = ExpandQuery(query);
@@ -201,7 +301,7 @@ public sealed class RoughSearcher : IDisposable
 
         try
         {
-            var symbolIdQuery = _symbolIdParser.Parse(escapedQuery);
+            var symbolIdQuery = _symbolIdParser.Value!.Parse(escapedQuery);
             symbolIdQuery.Boost = IdentifierBoost;
             booleanQuery.Add(symbolIdQuery, Occur.SHOULD);
         }
@@ -212,7 +312,7 @@ public sealed class RoughSearcher : IDisposable
 
         try
         {
-            var textQuery = _textParser.Parse(escapedQuery);
+            var textQuery = _textParser.Value!.Parse(escapedQuery);
             booleanQuery.Add(textQuery, Occur.SHOULD);
         }
         catch
@@ -230,12 +330,12 @@ public sealed class RoughSearcher : IDisposable
         }
 
         Query luceneQuery;
-        if (!string.IsNullOrWhiteSpace(_config.Kind))
+        if (!string.IsNullOrWhiteSpace(kind))
         {
             var filterQuery = new BooleanQuery();
             filterQuery.Add(booleanQuery, Occur.MUST);
 
-            var kindLower = _config.Kind.ToLowerInvariant();
+            var kindLower = kind.ToLowerInvariant();
             if (kindLower == "csharp" || kindLower == "cs")
             {
                 var langTerm = new Term(LuceneWriter.FieldLang, "csharp");
@@ -294,11 +394,11 @@ public sealed class RoughSearcher : IDisposable
         }
     }
 
-    private IReadOnlyList<RoughSearchResult> MergeResults(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, int take)
+    private IReadOnlyList<RoughSearchResult> MergeResults(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts)
     {
-        if (_config.UseSemanticScoringOnly)
+        if (opts.UseSemanticScoringOnly)
         {
-            // Pure semantic ranking: ignore lexical scores completely
+            // Pure semantic ranking: ignore lexical scores completely.
             var maxScore = semantic.Count > 0 ? semantic[0].Score : 1f;
 
             var ranked = semantic
@@ -313,14 +413,26 @@ public sealed class RoughSearcher : IDisposable
                 .Select(result => result!)
                 .ToList();
 
-            return FinalizeResults(ranked, take);
+            return FinalizeResults(ranked, opts);
         }
 
-        // Hybrid scoring (original behavior)
-        var candidates = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
+        return opts.Fusion == FusionMode.Rrf
+            ? MergeRrf(lexical, semantic, opts)
+            : MergeWeightedSum(lexical, semantic, opts);
+    }
 
-        var lexicalMax = lexical.Count > 0 ? lexical[0].Score : 0f;
-        var semanticMax = semantic.Count > 0 ? semantic[0].Score : 0f;
+    /// <summary>
+    /// Min-max normalize each leg to [0,1] and combine with the configured weights.
+    /// The normalization is the whole point: raw BM25 and cosine scores are not comparable,
+    /// so the previous "just add them" version ranked worse than semantic-only
+    /// (docs/rag-upgrade-plan-2026-09.md §10.2).
+    /// </summary>
+    private IReadOnlyList<RoughSearchResult> MergeWeightedSum(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts)
+    {
+        var (lexMin, lexMax) = MinMax(lexical.Select(m => (double)m.Score));
+        var (semMin, semMax) = MinMax(semantic.Select(m => (double)m.Score));
+
+        var candidates = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var match in lexical)
         {
@@ -330,7 +442,7 @@ public sealed class RoughSearcher : IDisposable
                 candidates[match.ItemId] = candidate;
             }
 
-            candidate.SetLexical(match.Score, lexicalMax);
+            candidate.SetLexical(Normalize(match.Score, lexMin, lexMax));
         }
 
         foreach (var match in semantic)
@@ -347,22 +459,96 @@ public sealed class RoughSearcher : IDisposable
                 candidates[match.Entry.ItemId] = candidate;
             }
 
-            candidate.SetSemantic(match.Score, semanticMax);
+            candidate.SetSemantic(Normalize(match.Score, semMin, semMax));
         }
 
         foreach (var candidate in candidates.Values)
         {
-            candidate.ComputeFinalScore(MixedBoost, SemanticWeight);
+            candidate.ComputeWeightedScore(opts.LexicalWeight, opts.SemanticWeight);
         }
 
-        var rankedResults = candidates
-            .OrderByDescending(kvp => kvp.Value.FinalScore)
-            .Select(kvp => ToResultFromCandidate(kvp.Key, kvp.Value))
-            .Where(result => result is not null)
-            .Select(result => result!)
-            .ToList();
+        return FinalizeResults(
+            candidates
+                .OrderByDescending(kvp => kvp.Value.FinalScore)
+                .Select(kvp => ToResultFromCandidate(kvp.Key, kvp.Value))
+                .Where(result => result is not null)
+                .Select(result => result!)
+                .ToList(),
+            opts);
+    }
 
-        return FinalizeResults(rankedResults, take);
+    /// <summary>
+    /// Reciprocal rank fusion (k = 60): <c>sum(weight_i / (k + rank_i))</c>.
+    /// Scale-free, so it needs no normalization; a useful cross-check against
+    /// <see cref="MergeWeightedSum"/>.
+    /// </summary>
+    private IReadOnlyList<RoughSearchResult> MergeRrf(IReadOnlyList<LexicalMatch> lexical, IReadOnlyList<VectorMatch> semantic, ResolvedOptions opts)
+    {
+        const int RrfK = 60;
+        var candidates = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < lexical.Count; i++)
+        {
+            var match = lexical[i];
+            if (!candidates.TryGetValue(match.ItemId, out var candidate))
+            {
+                candidate = new Candidate(match.Document);
+                candidates[match.ItemId] = candidate;
+            }
+
+            candidate.AddRrfScore(opts.LexicalWeight / (RrfK + i + 1.0), fromLexical: true);
+        }
+
+        for (var i = 0; i < semantic.Count; i++)
+        {
+            var match = semantic[i];
+            if (!candidates.TryGetValue(match.Entry.ItemId, out var candidate))
+            {
+                var document = FetchDocument(match.Entry.ItemId);
+                if (document is null)
+                {
+                    continue;
+                }
+
+                candidate = new Candidate(document);
+                candidates[match.Entry.ItemId] = candidate;
+            }
+
+            candidate.AddRrfScore(opts.SemanticWeight / (RrfK + i + 1.0), fromLexical: false);
+        }
+
+        foreach (var candidate in candidates.Values)
+        {
+            candidate.ComputeRrfScore();
+        }
+
+        return FinalizeResults(
+            candidates
+                .OrderByDescending(kvp => kvp.Value.FinalScore)
+                .Select(kvp => ToResultFromCandidate(kvp.Key, kvp.Value))
+                .Where(result => result is not null)
+                .Select(result => result!)
+                .ToList(),
+            opts);
+    }
+
+    private static (double Min, double Max) MinMax(IEnumerable<double> values)
+    {
+        var min = double.PositiveInfinity;
+        var max = double.NegativeInfinity;
+        foreach (var value in values)
+        {
+            if (value < min) min = value;
+            if (value > max) max = value;
+        }
+
+        return double.IsInfinity(min) ? (0, 0) : (min, max);
+    }
+
+    private static double Normalize(double value, double min, double max)
+    {
+        var span = max - min;
+        return span <= 1e-9 ? (max > 0 ? 1.0 : 0.0) : (value - min) / span;
     }
 
     /// <summary>
@@ -370,7 +556,7 @@ public sealed class RoughSearcher : IDisposable
     /// excluded, then collapse duplicate <c>SymbolId</c> entries (the same mod shipped in two
     /// folders, a <c>private/</c> copy next to the public one, …).
     /// </summary>
-    private List<RoughSearchResult> FinalizeResults(List<RoughSearchResult> ranked, int take)
+    private List<RoughSearchResult> FinalizeResults(List<RoughSearchResult> ranked, ResolvedOptions opts)
     {
         var filtered = new List<RoughSearchResult>(ranked.Count);
         foreach (var result in ranked)
@@ -383,9 +569,9 @@ public sealed class RoughSearcher : IDisposable
             filtered.Add(result);
         }
 
-        if (!_config.DedupeBySymbolId)
+        if (!opts.DedupeBySymbolId)
         {
-            return filtered.Take(take).ToList();
+            return filtered.Take(opts.MaxResults).ToList();
         }
 
         var best = new Dictionary<string, RoughSearchResult>(StringComparer.OrdinalIgnoreCase);
@@ -400,7 +586,7 @@ public sealed class RoughSearcher : IDisposable
 
         return best.Values
             .OrderByDescending(result => result.Score)
-            .Take(take)
+            .Take(opts.MaxResults)
             .ToList();
     }
 
@@ -543,6 +729,8 @@ public sealed class RoughSearcher : IDisposable
     public void Dispose()
     {
         (_queryEmbeddingGenerator as IDisposable)?.Dispose();
+        _symbolIdParser.Dispose();
+        _textParser.Dispose();
         _analyzer.Dispose();
         _reader.Dispose();
         _directory.Dispose();
@@ -552,8 +740,9 @@ public sealed class RoughSearcher : IDisposable
 
     private sealed class Candidate
     {
-        private float _lexicalScore;
-        private float _semanticScore;
+        private double _lexicalScore;
+        private double _semanticScore;
+        private double _rrfScore;
 
         public Candidate(Document document)
         {
@@ -565,37 +754,42 @@ public sealed class RoughSearcher : IDisposable
         public bool HasSemantic { get; private set; }
         public double FinalScore { get; private set; }
 
-        public void SetLexical(float score, float max)
+        /// <summary>Already min-max normalized to [0,1] by the caller.</summary>
+        public void SetLexical(double normalizedScore)
         {
             HasLexical = true;
-            _lexicalScore = max > 0 ? score / max : 0f;
+            _lexicalScore = normalizedScore;
         }
 
-        public void SetSemantic(float score, float max)
+        /// <summary>Already min-max normalized to [0,1] by the caller.</summary>
+        public void SetSemantic(double normalizedScore)
         {
             HasSemantic = true;
-            _semanticScore = max > 0 ? score / max : 0f;
+            _semanticScore = normalizedScore;
         }
 
-        public void ComputeFinalScore(float mixedBoost, float semanticWeight)
+        public void AddRrfScore(double contribution, bool fromLexical)
         {
-            var combined = 0.0;
-            if (HasLexical)
+            _rrfScore += contribution;
+            if (fromLexical)
             {
-                combined += _lexicalScore;
+                HasLexical = true;
             }
-
-            if (HasSemantic)
+            else
             {
-                combined += _semanticScore * semanticWeight;
+                HasSemantic = true;
             }
+        }
 
-            if (HasLexical && HasSemantic)
-            {
-                combined += mixedBoost;
-            }
+        public void ComputeWeightedScore(double lexicalWeight, double semanticWeight)
+        {
+            FinalScore = (HasLexical ? _lexicalScore * lexicalWeight : 0.0)
+                       + (HasSemantic ? _semanticScore * semanticWeight : 0.0);
+        }
 
-            FinalScore = combined;
+        public void ComputeRrfScore()
+        {
+            FinalScore = _rrfScore;
         }
     }
 }

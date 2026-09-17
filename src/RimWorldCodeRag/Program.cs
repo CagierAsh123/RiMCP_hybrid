@@ -34,6 +34,8 @@ public static class Program
                 return RunGetItem(tail);
             case "bench":
                 return await RetrievalBenchmark.RunAsync(ParseOptions(tail));
+            case "pack-vectors":
+                return RunPackVectors(tail);
             default:
                 Console.Error.WriteLine($"Unknown command '{command}'.");
                 PrintUsage();
@@ -244,6 +246,46 @@ public static class Program
         }
     }
 
+    /// <summary>
+    /// Convert a legacy <c>vectors.jsonl</c> into the packed binary format (task 1.1) without
+    /// re-running the embedding model.
+    /// </summary>
+    private static int RunPackVectors(string[] args)
+    {
+        var options = ParseOptions(args);
+        var vec = GetOrDefault(options, "vec", Path.Combine("index", "vec"));
+        var overwrite = options.ContainsKey("overwrite");
+
+        if (!Directory.Exists(vec))
+        {
+            Console.Error.WriteLine($"Error: vector directory not found: {vec}");
+            return 1;
+        }
+
+        try
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var result = VectorPacker.Pack(vec, overwrite);
+            watch.Stop();
+
+            Console.WriteLine($"[pack] {result.Count:N0} vectors x {result.Dimensions}d");
+            Console.WriteLine($"[pack] {VectorBinaryFormat.BinFileName}: {result.BinBytes / (1024.0 * 1024.0):N0} MB");
+            Console.WriteLine($"[pack] {VectorBinaryFormat.MetaFileName}: {result.MetaBytes / (1024.0 * 1024.0):N1} MB");
+            if (result.Skipped > 0)
+            {
+                Console.WriteLine($"[pack] skipped {result.Skipped:N0} unusable row(s)");
+            }
+            Console.WriteLine($"[pack] done in {watch.Elapsed.TotalSeconds:F1}s");
+            Console.WriteLine($"[pack] the legacy file is untouched; delete it manually once the packed index is verified.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"pack-vectors failed: {ex.Message}");
+            return 1;
+        }
+    }
+
     private static int RunGetUses(string[] args)
     {
         var options = ParseOptions(args);
@@ -440,7 +482,8 @@ public static class Program
         Console.WriteLine("  RimWorldCodeRag get-uses --symbol <id> [--kind <type>] [--graph <path>]");
         Console.WriteLine("  RimWorldCodeRag get-used-by --symbol <id> [--kind <type>] [--graph <path>]");
         Console.WriteLine("  RimWorldCodeRag get-item --symbol <id> [--max-lines <n>] [--lucene <dir>]");
-        Console.WriteLine("  RimWorldCodeRag bench --queries <file.json> [--out <file.json>] [--compare <file.json>] [--label <name>] [--lucene <dir>] [--vec <dir>] [--embedding-server <url>] [--max-results <n>] [--warmup <n>] [--hybrid] [--no-exclude] [--no-dedupe]");
+        Console.WriteLine("  RimWorldCodeRag bench --queries <file.json> [--out <file.json>] [--compare <file.json>] [--label <name>] [--lucene <dir>] [--vec <dir>] [--embedding-server <url>] [--max-results <n>] [--warmup <n>] [--hybrid] [--fusion weighted|rrf] [--weights <lex>,<sem>] [--semantic-k <n>] [--diagnose] [--no-exclude] [--no-dedupe]");
+        Console.WriteLine("  RimWorldCodeRag pack-vectors [--vec <dir>] [--overwrite]");
         Console.WriteLine();
         Console.WriteLine("Commands:");
         Console.WriteLine("  index             Build search index from source code and XML Defs");
@@ -449,6 +492,7 @@ public static class Program
         Console.WriteLine("  get-used-by       Query symbols that use/reference the given symbol");
         Console.WriteLine("  get-item          Retrieve full source code for a specific symbol");
         Console.WriteLine("  bench             Run the labeled retrieval benchmark and emit IR metrics (Recall/MRR/nDCG/CP)");
+        Console.WriteLine("  pack-vectors      Repack a legacy vectors.jsonl into vectors.bin + vectors.meta.jsonl (no re-embedding)");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --kind <type>     Filter by type: 'csharp'/'cs' (C# only), 'xml'/'def' (XML Defs only), or omit for all");

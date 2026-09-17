@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
   RiMCP 检索评测（阶段 0 任务 0.2）：跑标注查询集，输出确定性 IR 指标。
@@ -21,7 +21,17 @@
   本次运行的标签，写进 JSON，便于日后辨识（如 "qwen3-0.6b / hybrid"）。
 
 .PARAMETER Hybrid
-  用混合打分（UseSemanticScoringOnly=false）。默认是当前的纯语义排序。
+  用混合打分（UseSemanticScoringOnly=false）。默认是纯语义排序。
+
+.PARAMETER Fusion
+  融合算法：weighted（默认，min-max 归一化后加权和）或 rrf（倒数排名融合）。
+
+.PARAMETER Weights
+  加权和的权重 "lex,sem"，默认 0.5,0.5。实测 0.5/0.5 劣于纯语义，0.3/0.7 最优。
+
+.PARAMETER Diagnose
+  额外输出「候选来源诊断」：每个期望项分别在第几条被词法腿/语义腿捞到、融合后落到第几。
+  用来区分「候选生成问题（两腿都没有）」和「排序问题（捞到了没排上来）」。
 
 .PARAMETER SemanticK
   语义路候选数（默认 5）。
@@ -39,7 +49,10 @@
   .\tools\bench-retrieval.ps1 -Label baseline -Out tests\baseline-e5.json
 
 .EXAMPLE
-  .\tools\bench-retrieval.ps1 -Hybrid -SemanticK 100 -Label hybrid -Out tests\ab-hybrid.json -Compare tests\baseline-e5.json
+  .\tools\bench-retrieval.ps1 -Hybrid -Weights 0.3,0.7 -Label fused -Compare tests\baseline-e5.json
+
+.EXAMPLE
+  .\tools\bench-retrieval.ps1 -Diagnose -Hybrid -Weights 0.3,0.7 -Label diag
 #>
 [CmdletBinding()]
 param(
@@ -48,6 +61,10 @@ param(
     [string]$Compare,
     [string]$Label = 'unlabeled',
     [switch]$Hybrid,
+    [ValidateSet('weighted', 'rrf')]
+    [string]$Fusion = 'weighted',
+    [string]$Weights = '0.5,0.5',
+    [switch]$Diagnose,
     [int]$SemanticK = 5,
     [int]$LexicalK = 1000,
     [switch]$NoExclude,
@@ -85,8 +102,16 @@ $arguments = @(
 )
 
 if ($Out) { $arguments += @('--out', $Out) }
+else {
+    # Always give bench an --out target: without it the full JSON report goes to stdout and
+    # buries the metric table this wrapper exists to show.
+    $arguments += @('--out', (Join-Path ([System.IO.Path]::GetTempPath()) 'rimcp-bench-report.json'))
+}
 if ($Compare) { $arguments += @('--compare', (Resolve-Path -LiteralPath $Compare).Path) }
-if ($Hybrid) { $arguments += '--hybrid' }
+if ($Hybrid) {
+    $arguments += @('--hybrid', '--fusion', $Fusion, '--weights', $Weights)
+}
+if ($Diagnose) { $arguments += '--diagnose' }
 if ($NoExclude) { $arguments += '--no-exclude' }
 if ($NoDedupe) { $arguments += '--no-dedupe' }
 
@@ -94,8 +119,18 @@ Write-Host "bench: $Queries" -ForegroundColor Cyan
 
 # stderr carries per-query debug lines; keep them out of the metric table.
 $stderrLog = Join-Path ([System.IO.Path]::GetTempPath()) 'rimcp-bench.stderr.log'
-& dotnet @arguments 2> $stderrLog
-$code = $LASTEXITCODE
+
+# PowerShell turns a native command's stderr into a terminating error while
+# $ErrorActionPreference is 'Stop', which would abort the script even though dotnet succeeded.
+$previousEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    & dotnet @arguments 2> $stderrLog
+    $code = $LASTEXITCODE
+}
+finally {
+    $ErrorActionPreference = $previousEap
+}
 
 if ($code -ne 0) {
     Write-Host "bench 失败（exit=$code）。stderr 末尾：" -ForegroundColor Red

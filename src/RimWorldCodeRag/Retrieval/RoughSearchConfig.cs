@@ -26,6 +26,18 @@ public sealed class RoughSearchConfig
     /// </summary>
     public bool DedupeBySymbolId { get; init; } = true;
 
+    /// <summary>Weight of the min-max normalized lexical score in the fused ranking.</summary>
+    public double LexicalWeight { get; init; } = 0.5;
+
+    /// <summary>Weight of the min-max normalized semantic score in the fused ranking.</summary>
+    public double SemanticWeight { get; init; } = 0.5;
+
+    /// <summary>
+    /// Score fusion: <c>WeightedSum</c> (min-max normalize each leg, then weighted sum) or
+    /// <c>Rrf</c> (reciprocal rank fusion, scale-free). <c>UseSemanticScoringOnly</c> overrides both.
+    /// </summary>
+    public FusionMode Fusion { get; init; } = FusionMode.WeightedSum;
+
     public string? Kind { get; init; }
 
     public string? EmbeddingServerUrl { get; init; }

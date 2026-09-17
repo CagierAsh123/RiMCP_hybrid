@@ -59,7 +59,16 @@ COMMON MODDING PATTERNS:
             ApiKey=apiKey,
             ModelName=modelName,
             MaxResults = 20,
-            UseSemanticScoringOnly = true
+
+            // Fused retrieval (task 1.3). Weights measured on tests/retrieval-baseline.json:
+            // 0.5/0.5 is WORSE than semantic-only (MRR 0.3853 -> 0.3154) because BM25 candidates
+            // dilute good semantic hits; 0.3/0.7 beats semantic-only (MRR 0.4042, nDCG@10 0.4280,
+            // Hits@1 14/40 vs 12/40). Recall@10 is unchanged either way — recall is limited by
+            // candidate generation, not by ranking.
+            UseSemanticScoringOnly = false,
+            Fusion = FusionMode.WeightedSum,
+            LexicalWeight = 0.3,
+            SemanticWeight = 0.7
         };
 
         _searcher = new Lazy<RoughSearcher>(() =>
@@ -145,28 +154,15 @@ COMMON MODDING PATTERNS:
         }
 
         var startTime = DateTime.Now;
-        IReadOnlyList<RoughSearchResult> results;
-        if (string.Equals(kind, _defaultConfig.Kind, StringComparison.OrdinalIgnoreCase) && maxResults == _defaultConfig.MaxResults)
-        {
-            results = await _searcher.Value.SearchAsync(query);
-        }
-        else
-        {
-            var perReq = new RoughSearchConfig
-            {
-                LuceneIndexPath = _defaultConfig.LuceneIndexPath,
-                VectorIndexPath = _defaultConfig.VectorIndexPath,
-                EmbeddingServerUrl = _defaultConfig.EmbeddingServerUrl,
-                UseSemanticScoringOnly = _defaultConfig.UseSemanticScoringOnly,
-                LexicalCandidates = _defaultConfig.LexicalCandidates,
-                SemanticCandidates = _defaultConfig.SemanticCandidates,
-                Kind = kind,
-                MaxResults = maxResults
-            };
 
-            using var tmpSearcher = new RoughSearcher(perReq);
-                results = await tmpSearcher.SearchAsync(query);//当时写这个rough search的时候没考虑那么多，把很多东西写死了，导致现在得用这种粗暴的方式实现参数调整。真是狗操
-        }
+        // Per-request overrides: the searcher owns the loaded index (1.6 GB) and is reused for
+        // every call, including concurrent ones with different kind/max. Rebuilding it per
+        // parameter change used to re-parse the vector file and cost ~14 s per query.
+        var results = await _searcher.Value.SearchAsync(query, new RoughSearchOptions
+        {
+            Kind = kind,
+            MaxResults = maxResults
+        });
 
         var elapsed = DateTime.Now - startTime;
 
