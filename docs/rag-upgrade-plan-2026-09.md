@@ -840,3 +840,65 @@ Get-CimInstance Win32_Process -Filter "Name='RimWorldCodeRag.McpServer.exe'" |
 
 `index\vec.e5`（e5 向量）与 `index\vec.e5bak`（完整备份）都还在；把 5000 端口换回 e5 服务、
 `index\vec` 换回 `vec.e5` 即可。`index.bak\` 是改动前（含 Develop/rjw）的完整索引。
+
+---
+
+## 18. 修复：增量索引时新 chunk 没有向量（2026-09-17）
+
+### 18.1 问题（读代码时发现的，不是猜的）
+
+```csharp
+// IndexingPipeline.RunAsync，改动前
+if (_config.ForceRebuildEmbeddings || !VectorIndexExists())
+{
+    await GenerateEmbeddingsAsync(fullChunks, ...);   // 只有强制重建 / 向量文件不存在时才嵌入
+}
+```
+
+所以**增量跑索引时完全跳过嵌入**。而 `itemId` 里含 span 哈希 —— **任何编辑都会产生新 itemId**。
+结果：被改动的代码拿到 Lucene 文档和图节点，却**没有向量**，在语义那一路彻底消失
+（只能靠词法腿勉强捞到）。这直接让计划里"改源码后生效 < 2 分钟"变成"改完代码检索质量静默下降"。
+
+### 18.2 修法：对账，而不是"要么全量要么不干"
+
+新增 `Indexer/PackedVectorStore.cs`：
+
+- `VectorManifest.TryRead` —— 只读头部 + `vectors.meta.jsonl`（**不读 490 MB 浮点数据**），
+  得到 dim/count/每行的 itemId
+- `PackedVectorWriter` —— 流式写入，写 `.tmp` 再 `File.Move` 换入（**任何时刻磁盘上的索引都是完整的**）；
+  这条原子语义原先只在全量路径里有，现在两条路共用
+- `CopyKeptRows` —— 流式拷贝仍然有效的行（`Seek` 跳过孤儿行，不整文件缓冲）
+
+`IndexingPipeline` 的嵌入段改成：
+
+```
+强制重建 / 无向量文件  ->  全量嵌入（原逻辑）
+否则                  ->  对账：
+                          toEmbed = 有 chunk 但没有向量
+                          stale   = 有向量但没有 chunk
+                          两者都为 0 -> "Embeddings are up to date"（不写盘）
+                          否则 -> 先探测首批维度，再 拷贝保留行 + 嵌入新行 + 清掉孤儿
+```
+
+**维度守卫**：模型换代时（768 → 1024）混写会静默写坏索引，所以先探测首批向量维度，
+不一致就抛 `The embedding model changed dimension (768 -> 1024); ... Rerun with --force embed`，
+**并且不改动任何文件**。
+
+### 18.3 集成测试（`tools/test-incremental-embed.ps1`，全过）
+
+在临时语料上跑真实索引（用 e5 服务当"768 维模型"、Qwen3 服务当"1024 维模型"）：
+
+| 步骤 | 断言 | 结果 |
+|---|---|---|
+| 1 全量嵌入 | `vectors.bin` 头 dim/count 与 meta 行数一致 | dim=768 count=4=meta ✓ |
+| 2 改一个文件后增量 | **新增向量行 ≥ 1**（旧代码这里是 0 = bug）且**孤儿被清掉** | count 4→5，+2/−1 ✓ |
+| 3 只动 mtime 不动内容 | 走对账路径并报 "up to date"，行数不变 | count=5 ✓ |
+| 4 指向 1024 维服务 | 必须拒绝，且**不写坏文件** | exit=1，dim/count 未变 ✓ |
+
+顺带：`index` 的异常现在输出一行可操作错误（`[index] failed: ...`）而不是喷栈。
+
+### 18.4 意义
+
+这一条是"自动增量 < 2 分钟"（计划 §0.1）从**看起来能跑**变成**真的正确**的差别。
+它也解释了为什么"改完代码后检索变差"这类问题很难查：检索器没坏、语料也在，
+**只是新代码没有向量**。

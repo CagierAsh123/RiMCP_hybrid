@@ -70,41 +70,11 @@ public sealed class IndexingPipeline
             Console.ResetColor();
         }
 
+        // Resolve the embedding generator once: both the full and the incremental path need it.
+        var embeddingGenerator = CreateEmbeddingGenerator();
+
         if (_config.ForceRebuildEmbeddings || !VectorIndexExists())
         {
-            IEmbeddingGenerator? embeddingGenerator;
-
-            // Prefer embedding server if configured
-            if (!string.IsNullOrWhiteSpace(_config.ApiKey))
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[index] Using remote embedding API at {_config.EmbeddingServerUrl}, model: {_config.ModelName}");
-                Console.ResetColor();
-                embeddingGenerator = new ApiEmbeddingGenerator(_config.EmbeddingServerUrl, _config.ApiKey, _config.ModelName);
-            }
-            else if (!string.IsNullOrWhiteSpace(_config.EmbeddingServerUrl))
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[index] Using local embedding server at {_config.EmbeddingServerUrl}");
-                Console.ResetColor();
-                embeddingGenerator = new ServerBatchEmbeddingGenerator(_config.EmbeddingServerUrl, _config.PythonBatchSize);
-            }
-            else if (!string.IsNullOrWhiteSpace(_config.PythonScriptPath) && File.Exists(_config.PythonScriptPath))
-            {
-                if (string.IsNullOrWhiteSpace(_config.ModelPath))
-                {
-                    throw new InvalidOperationException("Model path is required when using the Python embedding bridge.");
-                }
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"[index] Using local Python bridge with model at {_config.ModelPath}");
-                Console.ResetColor();
-                embeddingGenerator = new PythonEmbeddingGenerator(_config.PythonExecutablePath!, _config.PythonScriptPath, _config.ModelPath, _config.PythonBatchSize);
-            }
-            else
-            {
-                embeddingGenerator = null;
-            }
-
             if (embeddingGenerator != null)
             {
                 Console.ForegroundColor = ConsoleColor.White;
@@ -112,6 +82,13 @@ public sealed class IndexingPipeline
                 await GenerateEmbeddingsAsync(fullChunks, embeddingGenerator, _config.VectorIndexPath, cancellationToken);
                 Console.ResetColor();
             }
+        }
+        else if (embeddingGenerator != null)
+        {
+            // The old code skipped embedding entirely whenever a vector file existed, so an
+            // incremental run gave every new/changed chunk a Lucene document and a graph node but
+            // NO vector — invisible to the semantic leg. Reconcile instead.
+            await EmbedIncrementallyAsync(fullChunks, embeddingGenerator, cancellationToken);
         }
 
         var graphBuilder = new GraphBuilder(_config.GraphPath, _config.MaxDegreeOfParallelism);
@@ -121,6 +98,142 @@ public sealed class IndexingPipeline
         WriteSourceRootHint();
 
         _metadataStore.Save();
+    }
+
+    private IEmbeddingGenerator? CreateEmbeddingGenerator()
+    {
+        if (!string.IsNullOrWhiteSpace(_config.ApiKey))
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[index] Using remote embedding API at {_config.EmbeddingServerUrl}, model: {_config.ModelName}");
+            Console.ResetColor();
+            return new ApiEmbeddingGenerator(_config.EmbeddingServerUrl, _config.ApiKey, _config.ModelName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_config.EmbeddingServerUrl))
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[index] Using local embedding server at {_config.EmbeddingServerUrl}");
+            Console.ResetColor();
+            return new ServerBatchEmbeddingGenerator(_config.EmbeddingServerUrl, _config.PythonBatchSize);
+        }
+
+        if (!string.IsNullOrWhiteSpace(_config.PythonScriptPath) && File.Exists(_config.PythonScriptPath))
+        {
+            if (string.IsNullOrWhiteSpace(_config.ModelPath))
+            {
+                throw new InvalidOperationException("Model path is required when using the Python embedding bridge.");
+            }
+
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[index] Using local Python bridge with model at {_config.ModelPath}");
+            Console.ResetColor();
+            return new PythonEmbeddingGenerator(_config.PythonExecutablePath!, _config.PythonScriptPath, _config.ModelPath, _config.PythonBatchSize);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Bring the vector index in line with <paramref name="chunks"/>: embed only the rows that are
+    /// missing, and drop the rows whose item id no longer exists.
+    ///
+    /// <para>
+    /// This is what makes incremental indexing actually correct. Item ids embed a span hash, so any
+    /// edit produces a new id; without this step the edited code keeps a Lucene document and a graph
+    /// node but loses its vector, silently vanishing from semantic search.
+    /// </para>
+    /// </summary>
+    private async Task EmbedIncrementallyAsync(
+        IReadOnlyList<ChunkRecord> chunks,
+        IEmbeddingGenerator generator,
+        CancellationToken cancellationToken)
+    {
+        var directory = _config.VectorIndexPath;
+        var manifest = VectorManifest.TryRead(directory);
+        if (manifest is null)
+        {
+            Console.Error.WriteLine(
+                "[index] WARNING: no packed vector index to update (legacy vectors.jsonl or missing file). " +
+                "New chunks would have NO vector and be invisible to semantic search; run with --force embed.");
+            return;
+        }
+
+        var currentIds = new HashSet<string>(chunks.Select(c => c.ItemId), StringComparer.OrdinalIgnoreCase);
+        var toEmbed = chunks.Where(c => !manifest.Contains(c.ItemId)).ToList();
+        var staleCount = manifest.Rows.Count(r => !currentIds.Contains(r.ItemId));
+
+        if (toEmbed.Count == 0 && staleCount == 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"[index] Embeddings are up to date ({manifest.Count:N0} vectors).");
+            Console.ResetColor();
+            return;
+        }
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(
+            $"[index] Incremental embeddings: {toEmbed.Count:N0} new chunk(s) to embed, " +
+            $"{staleCount:N0} stale row(s) to drop (existing {manifest.Count:N0} rows).");
+        Console.ResetColor();
+
+        var batchSize = Math.Max(1, generator.PreferredBatchSize);
+
+        // Probe the first batch before writing anything: if the model changed, the dimension differs
+        // and mixing rows would silently corrupt the index.
+        IReadOnlyList<float[]> firstVectors = Array.Empty<float[]>();
+        if (toEmbed.Count > 0)
+        {
+            var firstBatch = toEmbed.Take(Math.Min(batchSize, toEmbed.Count)).ToList();
+            firstVectors = await generator.GenerateEmbeddingsAsync(firstBatch, cancellationToken).ConfigureAwait(false);
+
+            var probeDimension = firstVectors.FirstOrDefault(v => v.Length > 0)?.Length ?? 0;
+            if (probeDimension > 0 && probeDimension != manifest.Dimensions)
+            {
+                throw new InvalidOperationException(
+                    $"The embedding model changed dimension ({manifest.Dimensions} -> {probeDimension}); " +
+                    "an incremental update cannot mix them. Rerun with --force embed to rebuild the vector index.");
+            }
+        }
+
+        using var writer = new PackedVectorWriter(directory);
+        var dropped = PackedVectorWriter.CopyKeptRows(writer, directory, manifest, currentIds);
+
+        var processed = 0;
+        for (var i = 0; i < toEmbed.Count; i += batchSize)
+        {
+            var batch = toEmbed.Skip(i).Take(batchSize).ToList();
+            if (batch.Count == 0)
+            {
+                continue;
+            }
+
+            var vectors = i == 0 && firstVectors.Count > 0
+                ? firstVectors
+                : await generator.GenerateEmbeddingsAsync(batch, cancellationToken).ConfigureAwait(false);
+
+            for (var j = 0; j < batch.Count && j < vectors.Count; j++)
+            {
+                if (vectors[j].Length == 0)
+                {
+                    Console.Error.WriteLine($"[index] skipping '{batch[j].ItemId}': empty embedding");
+                    continue;
+                }
+
+                writer.Append(batch[j].ItemId, batch[j].SymbolId, batch[j].Path, vectors[j]);
+            }
+
+            processed += batch.Count;
+            Console.Write($"\r[index] Embedded {processed}/{toEmbed.Count} new chunk(s)...");
+        }
+
+        writer.Finish();
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine(
+            $"[index] Vector index updated: {writer.Count:N0} rows x {writer.Dimensions}d " +
+            $"(added {toEmbed.Count:N0}, dropped {dropped:N0}).");
+        Console.ResetColor();
     }
 
     /// <summary>

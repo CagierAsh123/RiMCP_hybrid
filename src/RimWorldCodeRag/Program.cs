@@ -170,7 +170,18 @@ public static class Program
         }
 
         var pipeline = new IndexingPipeline(config);
-        await pipeline.RunAsync();
+        try
+        {
+            await pipeline.RunAsync();
+        }
+        catch (Exception ex)
+        {
+            // Actionable messages (model dimension change, missing index, unreadable files) deserve a
+            // clean line, not a stack trace.
+            Console.Error.WriteLine($"[index] failed: {ex.Message}");
+            return 1;
+        }
+
         return 0;
     }
 

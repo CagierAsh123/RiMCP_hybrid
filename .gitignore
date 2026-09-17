@@ -517,3 +517,5 @@ RimWorldData/
 !README.md
 !MCP_SETUP.md
 nul
+# Integration-test scratch space (tools/test-incremental-embed.ps1)
+local_build/incremental-embed-test/
