@@ -61,6 +61,13 @@ public sealed class RoughSearcher : IDisposable
 
         _vectorIndex = VectorIndex.Load(_config.VectorIndexPath, _exclusionFilter);
         _queryEmbeddingGenerator = CreateQueryEmbeddingGenerator();
+
+        if (_vectorIndex.Entries.Count == 0)
+        {
+            Console.Error.WriteLine(
+                "[search] WARNING: the vector index is empty — semantic retrieval is disabled. " +
+                "Results will be lexical-only (and with UseSemanticScoringOnly the response falls back to lexical).");
+        }
     }
 
     /// <summary>A snapshot of the searcher's defaults — used for diagnostics and for callers that pass no options.</summary>
@@ -225,17 +232,37 @@ public sealed class RoughSearcher : IDisposable
         // Dual-path retrieval: run lexical and full-corpus semantic search in parallel.
         // This ensures that items missed by BM25 can still be found by vector similarity.
         var lexicalTask = Task.Run(() => SearchLexical(expansion.LexicalQuery, opts.LexicalCandidates, opts.Kind), cancellationToken);
-        var embeddingValueTask = _queryEmbeddingGenerator.EmbedAsync(expansion.EmbeddingQuery, cancellationToken);
-        // ValueTask → Task so we can await both in parallel
-        var embeddingTask = embeddingValueTask.AsTask();
-        await Task.WhenAll(lexicalTask, embeddingTask).ConfigureAwait(false);
-        var lexicalMatches = lexicalTask.Result;
-        var queryVector = embeddingTask.Result;
+
+        // The embedding call is allowed to fail: losing the semantic leg costs recall, but failing
+        // the whole query costs everything. The lexical leg still runs.
+        float[] queryVector;
+        try
+        {
+            queryVector = await _queryEmbeddingGenerator.EmbedAsync(expansion.EmbeddingQuery, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[search] WARNING: could not embed the query ({ex.Message}); continuing with the lexical leg only.");
+            queryVector = Array.Empty<float>();
+        }
+
+        var lexicalMatches = await lexicalTask.ConfigureAwait(false);
 
         // Full-corpus semantic search (not limited to lexical candidates)
         IReadOnlyList<VectorMatch> semanticMatches;
         if (_vectorIndex.Entries.Count == 0 || queryVector.Length == 0)
         {
+            if (_vectorIndex.Entries.Count > 0 && queryVector.Length == 0)
+            {
+                Console.Error.WriteLine(
+                    "[search] WARNING: the query embedding is empty (no embedding server/subprocess configured " +
+                    "or it returned nothing) — the semantic leg is skipped.");
+            }
+
             semanticMatches = Array.Empty<VectorMatch>();
         }
         else
@@ -499,8 +526,32 @@ public sealed class RoughSearcher : IDisposable
     {
         if (opts.UseSemanticScoringOnly)
         {
+            // "Semantic-only" must degrade to lexical, not to nothing. Returning an empty list
+            // because the semantic leg produced no candidates looks identical to "the corpus has no
+            // such thing" — that failure mode silently broke the live MCP tool once already.
+            if (semantic.Count == 0)
+            {
+                if (lexical.Count == 0)
+                {
+                    return new List<RoughSearchResult>();
+                }
+
+                Console.Error.WriteLine(
+                    $"[search] WARNING: semantic-only requested but the semantic leg returned nothing " +
+                    $"({_vectorIndex.Entries.Count} vectors loaded); falling back to {lexical.Count} lexical candidate(s).");
+
+                var maxLexical = lexical[0].Score > 0 ? lexical[0].Score : 1f;
+                var lexicalOnly = lexical
+                    .Select(match => ToResult(match.ItemId, match.Document, match.Score / maxLexical, "lexical"))
+                    .Where(result => result is not null)
+                    .Select(result => result!)
+                    .ToList();
+
+                return FinalizeResults(lexicalOnly, opts);
+            }
+
             // Pure semantic ranking: ignore lexical scores completely.
-            var maxScore = semantic.Count > 0 ? semantic[0].Score : 1f;
+            var maxScore = semantic[0].Score;
 
             var ranked = semantic
                 .Select(match =>

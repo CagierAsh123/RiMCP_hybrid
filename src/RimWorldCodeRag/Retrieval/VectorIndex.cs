@@ -43,12 +43,25 @@ internal sealed class VectorIndex
 
         var binPath = Path.Combine(directory, VectorBinaryFormat.BinFileName);
         var metaPath = Path.Combine(directory, VectorBinaryFormat.MetaFileName);
+        var legacyPath = Path.Combine(directory, VectorBinaryFormat.LegacyJsonlFileName);
+
         if (File.Exists(binPath) && File.Exists(metaPath))
         {
             return LoadPacked(binPath, metaPath, filter);
         }
 
-        return LoadLegacyJsonl(Path.Combine(directory, VectorBinaryFormat.LegacyJsonlFileName), filter);
+        if (File.Exists(legacyPath))
+        {
+            return LoadLegacyJsonl(legacyPath, filter);
+        }
+
+        // Fail loudly. Silently returning an empty index turns a misconfigured or half-built index
+        // into "every search returns nothing", which looks like a retrieval-quality problem and
+        // wastes hours of debugging.
+        throw new FileNotFoundException(
+            $"No vector index in '{directory}'. Expected '{VectorBinaryFormat.BinFileName}' + " +
+            $"'{VectorBinaryFormat.MetaFileName}', or the legacy '{VectorBinaryFormat.LegacyJsonlFileName}'. " +
+            "Rebuild with: index --root <source> --vec <dir> --force embed");
     }
 
     /// <summary>True when either on-disk format is present.</summary>
