@@ -148,8 +148,22 @@ public static class RetrievalBenchmark
         var outcomes = new List<QueryOutcome>();
 
         var loadWatch = Stopwatch.StartNew();
-        using var searcher = new RoughSearcher(config);
+        RoughSearcher searcher;
+        try
+        {
+            searcher = new RoughSearcher(config);
+        }
+        catch (Exception ex)
+        {
+            // Report the cause without a stack trace: the common failures here (missing index,
+            // unreadable vector file) have actionable messages of their own.
+            Console.Error.WriteLine($"[bench] could not load the index: {ex.Message}");
+            return 1;
+        }
+
         loadWatch.Stop();
+        using (searcher)
+        {
         Console.WriteLine($"[bench] index loaded once in {loadWatch.Elapsed.TotalSeconds:F2}s (kind is now a per-request override)");
 
         for (var i = 0; i < warmup; i++)
@@ -226,6 +240,7 @@ public static class RetrievalBenchmark
             }
 
             outcomes.Add(new QueryOutcome(query, rows, hitRanks, relaxedHitRanks, missing, provenance, watch.Elapsed.TotalMilliseconds));
+        }
         }
 
         var report = BuildReport(label, queries, outcomes, labelProblems, new

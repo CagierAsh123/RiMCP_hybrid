@@ -1,0 +1,58 @@
+{
+  "_README": [
+    "金标冒烟测试（阶段 0 任务 0.5）：5 条必须命中的查询，改完代码 1 分钟跑完。",
+    "用途：拦住'整类失效'（例如索引缺失/路径过滤过宽导致全部返回 0 结果），",
+    "不用于衡量质量——质量看 tests/retrieval-baseline.json 的完整指标。",
+    "选的都是评测集里 e5 与 Qwen3 都应稳定命中的项（跨 vanilla C#、vanilla XML、mod C#）。",
+    "运行：tools/smoke-gold.ps1"
+  ],
+  "version": 1,
+  "createdAt": "2026-09-17",
+  "mustPass": {
+    "recallAt10": 1.0,
+    "labelProblemsAllowed": 0,
+    "note": "5 条全部必须有命中，且每条 expected 必须真实存在于索引里"
+  },
+  "queries": [
+    {
+      "id": "gold-01",
+      "query": "Need_Food",
+      "kind": "cs",
+      "category": "gold",
+      "expected": ["RimWorld.Need_Food"],
+      "note": "vanilla C# 精确类型名"
+    },
+    {
+      "id": "gold-02",
+      "query": "CompPowerTrader",
+      "kind": "cs",
+      "category": "gold",
+      "expected": ["RimWorld.CompPowerTrader"],
+      "note": "vanilla C# 精确类型名（上一次线上事故就是它返回 0 结果）"
+    },
+    {
+      "id": "gold-03",
+      "query": "JobDriver_Mine",
+      "kind": "cs",
+      "category": "gold",
+      "expected": ["RimWorld.JobDriver_Mine"],
+      "note": "vanilla C#，验证 kind=cs 过滤没把结果滤空"
+    },
+    {
+      "id": "gold-04",
+      "query": "Gun_BoltActionRifle",
+      "kind": "xml",
+      "category": "gold",
+      "expected": ["xml:ThingDef:Gun_BoltActionRifle"],
+      "note": "vanilla XML Def，验证 kind=xml 这条路"
+    },
+    {
+      "id": "gold-05",
+      "query": "RimTalkInteraction",
+      "kind": "xml",
+      "category": "gold",
+      "expected": ["xml:InteractionDef:RimTalkInteraction"],
+      "note": "mod XML Def，验证 mod 内容仍在库里（排除规则没有误伤）、且 kind=xml 能覆盖 mod"
+    }
+  ]
+}

@@ -112,12 +112,16 @@
 > 实际产物：`tests/retrieval-baseline.json`（40 条标注）、`tools/bench-retrieval.ps1`（封装 C# `bench` 子命令）、
 > `tools/Resolve-SymbolIds.ps1`（把名字解析成真实 symbolId）、`tests/baseline-e5.json`（基线存档）。
 
-### 任务 0.5 在线监控（L3，最小可用）
-- MCP 工具打一行 JSONL：`{ts, tool, query, kind, max, latency_ms, result_count, ok}`
-- 派生指标：延迟 P50/P95、0 结果率、工具调用分布（`rough_search` → `get_item` 的转化率能直接反映"粗搜质量"）
-- 加一个**金标冒烟测试**（5 条查询必须命中），改完代码 1 分钟跑完
+### 任务 0.5 在线监控（L3，最小可用）✅
+- MCP 工具打一行 JSONL：`{ts, tool, query, kind, max, latency_ms, result_count, ok}` ✅（见 §13）
+- 派生指标：延迟 P50/P95、0 结果率、工具调用分布（`rough_search` → `get_item` 的转化率能直接反映"粗搜质量"）✅
+- 加一个**金标冒烟测试**（5 条查询必须命中），改完代码 1 分钟跑完 ✅ `tools/smoke-gold.ps1`（见 §16）
+  —— 这个冒烟测试是 §15 那次"静默返回 0 结果"事故的产物：完整评测跑十几轮都没发现，
+  它 1 分钟就能报红
 
-**验收**：① 一条命令输出 L1 指标表（e5 基线已存档）；② L2 有 5 个任务的四维评分；③ 后续每次改动都能用同一套数字对比。
+**验收**：① 一条命令输出 L1 指标表（e5 基线已存档）→ `tools/bench-retrieval.ps1` ✅；
+② L2 有 5 个任务的四维评分 → 协议与 8 条任务已就绪（`tests/l2-tasks.json` + `docs/l2-eval-protocol.md`），
+**待换模型后首次运行**；③ 后续每次改动都能用同一套数字对比 ✅（`--out` + `--compare`）。
 ---
 
 ## 3. 阶段 1：P0 性能与召回（1~1.5 天，收益最大）
@@ -727,3 +731,40 @@ L3 的另一半价值：它记录的 0 结果查询是**真实分布**，比人�
 
 **教训**：这次事故本可以在 30 秒内被 L3 遥测发现（0 结果率飙升）。它再次说明
 **L1（离线、可归因）不能替代 L3（在线、看真实进程）**。
+
+---
+
+## 16. 任务 0.5 收尾：金标冒烟测试（2026-09-17）
+
+### 16.1 它存在的唯一理由：1 分钟抓住"整类失效"
+
+`tools/smoke-gold.ps1` + `tests/smoke-gold.json`（5 条查询）。它**不衡量质量**
+（质量看 40 条的完整指标），只拦这一类故障：**所有查询都返回 0 结果**。
+这类故障的表现太像"语料里没有"，而完整评测要跑 40 条、还得人工比对才发现异常 ——
+§15 那次线上事故就是这样漏过去的。
+
+断言（任一不过即 exit 1）：
+1. **没有标注问题**（每个 `expected` 必须真实存在于索引里 —— 否则测试本身在骗人）
+2. **Recall@10 == 1.0**（5 条全中）
+3. **每条查询结果数 > 0**（把"整条查询空"和"排序偏了"区分开）
+
+选材覆盖三条不同路径：vanilla C# 精确名（3 条，含上次出事的 `CompPowerTrader`）、
+vanilla XML Def、**mod XML Def**（验证排除规则没误伤 mod 内容）。
+
+### 16.2 正负两条路径都验证过
+
+```
+正：SMOKE PASS  Recall@10 = 1.0  Hits@1 3/5  p50 69 ms      (e5 索引)
+负：bench 失败（exit=1）
+    [bench] could not load the index: No vector index in '...\vec.does-not-exist'.
+    Expected 'vectors.bin' + 'vectors.meta.jsonl', or the legacy 'vectors.jsonl'.
+    Rebuild with: index --root <source> --vec <dir> --force embed
+    FAIL: bench 没有产出报告，冒烟测试无法判定
+    + 常见原因清单（索引缺失 / 嵌入服务没起 / 排除规则太宽 / kind 过滤滤空）
+```
+
+顺带把 `bench` 里未捕获异常喷栈的观感修掉（现在是一行可操作的错误 + exit 1）。
+
+### 16.3 `bench-retrieval.ps1` 增加 `-VecDir` / `-IndexDir` / `-Exe`
+
+换模型期间索引正在被重写、或要回跑旧向量（`vec.e5`）时，不必等索引写完也能评测。

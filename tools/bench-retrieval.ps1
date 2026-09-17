@@ -45,6 +45,15 @@
 .PARAMETER NoDedupe
   关闭 SymbolId 去重（用于量化去重的影响）。
 
+.PARAMETER VecDir
+  向量目录名（相对 index\），默认 vec。换模型期间索引写一半、或要跑旧向量时用它指到 vec.e5。
+
+.PARAMETER IndexDir
+  index 根目录，默认 <repo>\src\RimWorldCodeRag\index。
+
+.PARAMETER Exe
+  可执行 dll 路径；默认用 bin\Release\net8.0（被占用时可用构建到别处的副本）。
+
 .EXAMPLE
   .\tools\bench-retrieval.ps1 -Label baseline -Out tests\baseline-e5.json
 
@@ -71,15 +80,24 @@ param(
     [switch]$NoDedupe,
     [int]$MaxResults = 20,
     [int]$Warmup = 1,
-    [string]$EmbeddingServer = 'http://127.0.0.1:5000'
+    [string]$EmbeddingServer = 'http://127.0.0.1:5000',
+    [string]$VecDir = 'vec',
+    [string]$IndexDir,
+    [string]$Exe
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $repoRoot 'src\RimWorldCodeRag\bin\Release\net8.0\RimWorldCodeRag.dll'
-$indexRoot = Join-Path $repoRoot 'src\RimWorldCodeRag\index'
+if (-not $Exe) {
+    $Exe = Join-Path $repoRoot 'src\RimWorldCodeRag\bin\Release\net8.0\RimWorldCodeRag.dll'
+}
+$exe = $Exe
+if (-not $IndexDir) {
+    $IndexDir = Join-Path $repoRoot 'src\RimWorldCodeRag\index'
+}
+$indexRoot = $IndexDir
 
 if (-not (Test-Path -LiteralPath $exe)) {
     throw "找不到 $exe。先跑：dotnet build src\RimWorldCodeRag\RimWorldCodeRag.csproj -c Release"
@@ -92,7 +110,7 @@ $arguments = @(
     $exe, 'bench',
     '--queries', (Resolve-Path -LiteralPath $Queries).Path,
     '--lucene', (Join-Path $indexRoot 'lucene'),
-    '--vec', (Join-Path $indexRoot 'vec'),
+    '--vec', (Join-Path $indexRoot $VecDir),
     '--embedding-server', $EmbeddingServer,
     '--max-results', $MaxResults,
     '--warmup', $Warmup,
