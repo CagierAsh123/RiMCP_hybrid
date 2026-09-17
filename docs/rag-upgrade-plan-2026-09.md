@@ -565,11 +565,25 @@ index --root B:\rimworld-code\_SourceCode --vec index\vec ... --embedding-server
 
 ### 12.6 验收清单（重嵌入完成后执行）
 
+**一条命令**：`tools/validate-model-swap.ps1 -EmbeddingServer http://127.0.0.1:5001`
+（依次校验服务维度/dtype/prompt → 校验 `vectors.bin` 头与实际长度 → 冒烟测试 → 与 e5 基线对比，
+任一步失败即停）。手动核对项：
+
 1. `/health` 确认 `dim=1024`、`dtype=torch.bfloat16`、`prompts=[document, query]`
 2. `smoke_embedding_server.py` 全过（含"query 与 passage 必须不同"这条）
 3. `bench --diagnose` 对比 `tests/baseline-e5.json`：重点看 **bilingual-mod** 能否从 0.125 起飞
 4. 重嵌入后 `vectors.bin` 应为 144,732 × 1024 × 4 ≈ **565 MB**
 5. 把 5000 端口的 e5 服务换成 Qwen3（这样 MCP 配置不用改）
+
+### 12.7 顺带修的一个真问题：索引写到一半会被读到
+
+重嵌入跑到一半时，`index\vec\vectors.bin` 的头部还是占位符（`dim=0`）。
+此时若 MCP server 重启，`ReadHeader` 会抛 "Corrupt packed vector header" ——
+**几小时的重嵌入窗口里工具一重启就死**。
+
+改为写 `vectors.bin.tmp` / `vectors.meta.jsonl.tmp`，**全部写完再 `File.Move` 换入**；
+失败时删临时文件并抛出。这样任何时刻磁盘上的索引都是完整的。
+（Lucene 与 graph 还有同类问题，记入阶段 3。）
 
 ---
 

@@ -140,73 +140,111 @@ public sealed class IndexingPipeline
         var binPath = Path.Combine(directory, VectorBinaryFormat.BinFileName);
         var metaPath = Path.Combine(directory, VectorBinaryFormat.MetaFileName);
 
-        // Header is written as a placeholder and patched once dim/count are known, so the float
-        // payload streams straight to disk (no temp file, no full buffering).
-        using var bin = new FileStream(binPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1 << 20);
-        VectorBinaryFormat.WriteHeader(bin, 0, 0);
+        // Write to temp files and swap them in at the end. A reader that opens a half-written
+        // vectors.bin sees the placeholder header (dim = 0) and throws, so the index must never be
+        // visible in a partial state — a long re-embed otherwise means hours of "restart the MCP
+        // server and it dies".
+        var binTemp = binPath + ".tmp";
+        var metaTemp = metaPath + ".tmp";
 
-        using var meta = new StreamWriter(metaPath, append: false, new UTF8Encoding(false), 1 << 20);
-
-        var processed = 0;
-        var dimensions = 0;
-        var metaBuffer = new StringBuilder(256);
-        var batchSize = generator.PreferredBatchSize;
-
-        for (var i = 0; i < chunks.Count; i += batchSize)
+        try
         {
-            var batch = chunks.Skip(i).Take(batchSize).ToList();
-            if (batch.Count == 0) continue;
+            // Header is written as a placeholder and patched once dim/count are known, so the float
+            // payload streams straight to disk.
+            using var bin = new FileStream(binTemp, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 1 << 20);
+            VectorBinaryFormat.WriteHeader(bin, 0, 0);
 
-            var vectors = await generator.GenerateEmbeddingsAsync(batch, cancellationToken);
+            using var meta = new StreamWriter(metaTemp, append: false, new UTF8Encoding(false), 1 << 20);
 
-            for (var j = 0; j < batch.Count; j++)
+            var processed = 0;
+            var dimensions = 0;
+            var metaBuffer = new StringBuilder(256);
+            var batchSize = generator.PreferredBatchSize;
+
+            for (var i = 0; i < chunks.Count; i += batchSize)
             {
-                var chunk = batch[j];
-                var vector = vectors[j];
+                var batch = chunks.Skip(i).Take(batchSize).ToList();
+                if (batch.Count == 0) continue;
 
-                if (vector.Length == 0)
+                var vectors = await generator.GenerateEmbeddingsAsync(batch, cancellationToken);
+
+                for (var j = 0; j < batch.Count; j++)
                 {
-                    Console.Error.WriteLine($"[index] skipping '{chunk.ItemId}': empty embedding");
-                    continue;
+                    var chunk = batch[j];
+                    var vector = vectors[j];
+
+                    if (vector.Length == 0)
+                    {
+                        Console.Error.WriteLine($"[index] skipping '{chunk.ItemId}': empty embedding");
+                        continue;
+                    }
+
+                    if (dimensions == 0)
+                    {
+                        dimensions = vector.Length;
+                    }
+                    else if (vector.Length != dimensions)
+                    {
+                        Console.Error.WriteLine($"[index] skipping '{chunk.ItemId}': dimension {vector.Length} != {dimensions}");
+                        continue;
+                    }
+
+                    bin.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(vector.AsSpan()));
+
+                    metaBuffer.Clear();
+                    metaBuffer.Append("{\"itemId\":");
+                    AppendJsonString(metaBuffer, chunk.ItemId);
+                    metaBuffer.Append(",\"symbolId\":");
+                    AppendJsonString(metaBuffer, chunk.SymbolId);
+                    metaBuffer.Append(",\"path\":");
+                    AppendJsonString(metaBuffer, chunk.Path);
+                    metaBuffer.Append('}');
+                    await meta.WriteLineAsync(metaBuffer.ToString()).ConfigureAwait(false);
+
+                    processed++;
                 }
-
-                if (dimensions == 0)
-                {
-                    dimensions = vector.Length;
-                }
-                else if (vector.Length != dimensions)
-                {
-                    Console.Error.WriteLine($"[index] skipping '{chunk.ItemId}': dimension {vector.Length} != {dimensions}");
-                    continue;
-                }
-
-                bin.Write(System.Runtime.InteropServices.MemoryMarshal.AsBytes(vector.AsSpan()));
-
-                metaBuffer.Clear();
-                metaBuffer.Append("{\"itemId\":");
-                AppendJsonString(metaBuffer, chunk.ItemId);
-                metaBuffer.Append(",\"symbolId\":");
-                AppendJsonString(metaBuffer, chunk.SymbolId);
-                metaBuffer.Append(",\"path\":");
-                AppendJsonString(metaBuffer, chunk.Path);
-                metaBuffer.Append('}');
-                await meta.WriteLineAsync(metaBuffer.ToString()).ConfigureAwait(false);
-
-                processed++;
+                Console.Write($"\r[index] Generated {processed}/{chunks.Count} embeddings...");
             }
-            Console.Write($"\r[index] Generated {processed}/{chunks.Count} embeddings...");
+
+            await meta.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+            if (dimensions > 0 && processed > 0)
+            {
+                bin.Position = 0;
+                VectorBinaryFormat.WriteHeader(bin, dimensions, processed);
+            }
+
+            bin.Flush(flushToDisk: true);
+            Console.WriteLine();
+            Console.WriteLine($"[index] Wrote {VectorBinaryFormat.Describe(dimensions, processed)} to {binPath}");
         }
-
-        await meta.FlushAsync(cancellationToken).ConfigureAwait(false);
-
-        if (dimensions > 0 && processed > 0)
+        catch
         {
-            bin.Position = 0;
-            VectorBinaryFormat.WriteHeader(bin, dimensions, processed);
+            // Nothing half-written may survive a failure.
+            TryDelete(binTemp);
+            TryDelete(metaTemp);
+            throw;
         }
 
-        Console.WriteLine();
-        Console.WriteLine($"[index] Wrote {VectorBinaryFormat.Describe(dimensions, processed)} to {binPath}");
+        // Swap both files into place only after the payload is complete. The `using` streams above
+        // are already closed here, which is required before moving them.
+        File.Move(binTemp, binPath, overwrite: true);
+        File.Move(metaTemp, metaPath, overwrite: true);
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // Best effort: the file is still open or already gone.
+        }
     }
 
     private static void AppendJsonString(StringBuilder builder, string value)
